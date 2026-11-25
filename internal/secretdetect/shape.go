@@ -1,7 +1,7 @@
 // Copyright 2026 Gabriel Ignat
 // SPDX-License-Identifier: AGPL-3.0-only
 
-package secret
+package secretdetect
 
 import (
 	"math"
@@ -47,7 +47,7 @@ func plainValue(value string) bool {
 func noSecret(value string) bool {
 	v := strings.TrimSpace(value)
 	switch {
-	case len(v) < minSecretLength, plainWords[strings.ToLower(v)]:
+	case len(v) < MinSecretLength, plainWords[strings.ToLower(v)]:
 		return true
 	case strings.HasPrefix(v, "arn:"), strings.HasPrefix(v, "@Microsoft.KeyVault("), strings.HasPrefix(v, "{{resolve:"):
 		return true

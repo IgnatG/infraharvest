@@ -133,24 +133,7 @@ func (c containerStore) List(ctx context.Context, container, prefix string) ([]s
 	return c.fakeStore.List(ctx, container, prefix)
 }
 
-func TestIsAzureBlob(t *testing.T) {
-	for source, want := range map[string]bool{
-		"https://acmestate.blob.core.windows.net/tfstate/":      true,
-		"https://acmestate.blob.core.usgovcloudapi.net/tfstate": true,
-		"https://acmestate.blob.core.chinacloudapi.cn/tfstate":  true,
-		"https://acmestate.blob.evil.example/tfstate":           false,
-		"https://acmestate.blob.core.windows.net.evil.example/": false,
-		"https://blob.core.windows.net/tfstate/":                false,
-		"https://acmestate.blob.core.windows.net:8443/tfstate/": false,
-		"https://acmestate.file.core.windows.net/share/":        false,
-		"http://acmestate.blob.core.windows.net/tfstate/":       false,
-		"s3://acme-state/blob.json":                             false,
-		"terraform.tfstate":                                     false,
-	} {
-		if got := isAzureBlob(source); got != want {
-			t.Errorf("isAzureBlob(%q) = %v, want %v", source, got, want)
-		}
-	}
+func TestLoadRejectsOtherHosts(t *testing.T) {
 	if _, err := Load(context.Background(), []string{"https://acmestate.blob.core.windows.net/"}, Stores{}); err == nil {
 		t.Error("want an error for a source without a container")
 	}
@@ -295,9 +278,6 @@ func TestLoadReadsAzureWorkspaces(t *testing.T) {
 	if !ok || where != "https://acmestate.blob.core.windows.net/tfstate/prod/terraform.tfstateenv:staging" {
 		t.Errorf("the staging workspace's state: %q, %v", where, ok)
 	}
-	if isStateObject("s3", "prod/terraform.tfstateenv:staging") {
-		t.Error("an S3 object named like an azurerm workspace isn't state")
-	}
 }
 
 // recordingStore is a fakeStore that records the prefixes it is listed
@@ -389,76 +369,6 @@ func TestLoadReadsS3Workspaces(t *testing.T) {
 		}
 	}
 }
-
-// A state larger than the limit fails, saying so, rather than being cut
-// off into a JSON error.
-func TestReadStateLimit(t *testing.T) {
-	limit := stateSizeLimit
-	defer func() { stateSizeLimit = limit }()
-	stateSizeLimit = 4 << 20
-
-	content, err := ReadState(strings.NewReader(strings.Repeat("x", 4<<20)))
-	if err != nil || len(content) != 4<<20 {
-		t.Errorf("at the limit: %d bytes, %v", len(content), err)
-	}
-	if _, err := ReadState(strings.NewReader(strings.Repeat("x", 4<<20+1))); err == nil || !strings.Contains(err.Error(), "larger than 4 MiB") {
-		t.Errorf("over the limit: %v", err)
-	}
-	path := filepath.Join(t.TempDir(), "big.tfstate")
-	if err := os.WriteFile(path, []byte(strings.Repeat(" ", 4<<20+1)), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Load(context.Background(), []string{path}, Stores{}); err == nil || !strings.Contains(err.Error(), "larger than") {
-		t.Errorf("a local state over the limit: %v", err)
-	}
-}
-
-// States are read several at a time, and what they manage is added as if
-// read in order; the first failure is returned.
-func TestParseAll(t *testing.T) {
-	stateOf := func(id string) []byte {
-		return []byte(`{"version": 4, "resources": [{"mode": "managed", "type": "aws_s3_bucket", "instances": [{"attributes": {"id": "` + id + `"}}]}]}`)
-	}
-	var keys []string
-	content := map[string][]byte{}
-	for i := range 3 * fetchParallel {
-		key := fmt.Sprintf("roots/%02d.tfstate", i)
-		keys = append(keys, key)
-		content[key] = stateOf("shared")
-	}
-	content["roots/05.tfstate"] = nil // no state yet
-	get := func(_ context.Context, key string) ([]byte, error) {
-		body, ok := content[key]
-		if !ok {
-			return nil, fmt.Errorf("no such key %s", key)
-		}
-		return body, nil
-	}
-	r := Resources{}
-	if err := r.parseAll(context.Background(), keys, opener(getStore(get), "acme"), "s3://acme/"); err != nil {
-		t.Fatal(err)
-	}
-	if where, _ := r.Lookup("aws_s3_bucket", "shared"); where != "s3://acme/"+keys[len(keys)-1] {
-		t.Errorf("the last state should win, as read in order: %q", where)
-	}
-
-	failing := func(ctx context.Context, key string) ([]byte, error) {
-		if key == "roots/03.tfstate" {
-			return nil, fmt.Errorf("access denied to %s", key)
-		}
-		return get(ctx, key)
-	}
-	if err := (Resources{}).parseAll(context.Background(), keys, opener(getStore(failing), "acme"), "s3://acme/"); err == nil || !strings.Contains(err.Error(), "access denied") {
-		t.Errorf("want the failure, got %v", err)
-	}
-}
-
-// getStore is an ObjectStore of one bucket whose objects get returns.
-type getStore func(ctx context.Context, key string) ([]byte, error)
-
-func (g getStore) List(context.Context, string, string) ([]string, error) { return nil, nil }
-
-func (g getStore) Get(ctx context.Context, _, key string) ([]byte, error) { return g(ctx, key) }
 
 // Each resource has its address in the state: in a module call, with its
 // count or for_each key; one the state doesn't name has none.

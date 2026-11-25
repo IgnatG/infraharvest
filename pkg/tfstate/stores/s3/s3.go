@@ -13,7 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
 
 // Store reads state from Amazon S3.
@@ -23,7 +23,7 @@ type Store struct {
 
 // New opens S3 in region with the credentials of profile, or the default
 // region and credential chain for those that are empty.
-func New(ctx context.Context, region, profile string) (managed.ObjectStore, error) {
+func New(ctx context.Context, region, profile string) (tfstate.ObjectStore, error) {
 	var opts []func(*config.LoadOptions) error
 	if region != "" {
 		opts = append(opts, config.WithRegion(region))
@@ -61,11 +61,11 @@ func (s *Store) Get(ctx context.Context, bucket, key string) ([]byte, error) {
 		return nil, err
 	}
 	defer out.Body.Close()
-	return managed.ReadState(out.Body)
+	return tfstate.ReadState(out.Body)
 }
 
 // Open returns an object's content to read as it goes (see
-// managed.StreamStore).
+// tfstate.StreamStore).
 func (s *Store) Open(ctx context.Context, bucket, key string) (io.ReadCloser, error) {
 	out, err := s.client.GetObject(ctx, &awss3.GetObjectInput{Bucket: aws.String(bucket), Key: aws.String(key)})
 	if err != nil {
@@ -75,4 +75,4 @@ func (s *Store) Open(ctx context.Context, bucket, key string) (io.ReadCloser, er
 }
 
 // Stores read state as it is decoded.
-var _ managed.StreamStore = (*Store)(nil)
+var _ tfstate.StreamStore = (*Store)(nil)

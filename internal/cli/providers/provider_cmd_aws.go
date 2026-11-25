@@ -21,8 +21,8 @@ import (
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/logging"
 	"github.com/IgnatG/infraharvest/internal/managed"
-	s3store "github.com/IgnatG/infraharvest/internal/managed/stores/s3"
 	awsprovider "github.com/IgnatG/infraharvest/internal/providers/aws"
+	s3store "github.com/IgnatG/infraharvest/pkg/tfstate/stores/s3"
 )
 
 // DefaultAssumeRole is the role --accounts and --organization assume in

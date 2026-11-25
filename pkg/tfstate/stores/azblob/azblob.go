@@ -17,7 +17,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	sdkazblob "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
 
 // Store reads state from Azure Blob Storage: containers are buckets.
@@ -33,7 +33,7 @@ type Store struct {
 // Azure's default credential chain, such as the Azure CLI's login. All but
 // the first two need a data role on the account, such as Storage Blob Data
 // Reader.
-func New(_ context.Context, serviceURL string) (managed.ObjectStore, error) {
+func New(_ context.Context, serviceURL string) (tfstate.ObjectStore, error) {
 	client, err := newClient(serviceURL, os.Getenv)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,7 @@ func (s *Store) List(ctx context.Context, container, prefix string) ([]string, e
 		page, err := pages.NextPage(ctx)
 		if err != nil {
 			// A transport error quotes the URL, and with it a SAS token.
-			return nil, managed.WithoutURL(err)
+			return nil, tfstate.WithoutURL(err)
 		}
 		for _, b := range page.Segment.BlobItems {
 			if b != nil && b.Name != nil {
@@ -94,22 +94,22 @@ func (s *Store) List(ctx context.Context, container, prefix string) ([]string, e
 func (s *Store) Get(ctx context.Context, container, name string) ([]byte, error) {
 	resp, err := s.client.DownloadStream(ctx, container, name, nil)
 	if err != nil {
-		return nil, managed.WithoutURL(err)
+		return nil, tfstate.WithoutURL(err)
 	}
 	defer resp.Body.Close()
-	return managed.ReadState(resp.Body)
+	return tfstate.ReadState(resp.Body)
 }
 
 // Open returns a blob's content to read as it goes (see
-// managed.StreamStore). Errors in reading it may quote the blob's URL:
-// the reader passes them through managed.WithoutURL.
+// tfstate.StreamStore). Errors in reading it may quote the blob's URL:
+// the reader passes them through tfstate.WithoutURL.
 func (s *Store) Open(ctx context.Context, container, name string) (io.ReadCloser, error) {
 	resp, err := s.client.DownloadStream(ctx, container, name, nil)
 	if err != nil {
-		return nil, managed.WithoutURL(err)
+		return nil, tfstate.WithoutURL(err)
 	}
 	return resp.Body, nil
 }
 
 // Stores read state as it is decoded.
-var _ managed.StreamStore = (*Store)(nil)
+var _ tfstate.StreamStore = (*Store)(nil)

@@ -16,7 +16,7 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/api/storage/v1"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
 
 // Store reads state from Cloud Storage with Application Default
@@ -28,7 +28,7 @@ type Store struct {
 // New opens Cloud Storage. When STORAGE_EMULATOR_HOST is set it reads
 // from that emulator, without credentials, as Cloud Storage's own client
 // libraries do; a host without a scheme is taken as http.
-func New(ctx context.Context) (managed.ObjectStore, error) {
+func New(ctx context.Context) (tfstate.ObjectStore, error) {
 	opts := []option.ClientOption{option.WithScopes(storage.DevstorageReadOnlyScope)}
 	if host := os.Getenv("STORAGE_EMULATOR_HOST"); host != "" {
 		endpoint, err := emulatorEndpoint(host)
@@ -82,11 +82,11 @@ func (s *Store) Get(ctx context.Context, bucket, name string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	return managed.ReadState(resp.Body)
+	return tfstate.ReadState(resp.Body)
 }
 
 // Open returns an object's content to read as it goes (see
-// managed.StreamStore).
+// tfstate.StreamStore).
 func (s *Store) Open(ctx context.Context, bucket, name string) (io.ReadCloser, error) {
 	resp, err := s.service.Objects.Get(bucket, name).Context(ctx).Download()
 	if err != nil {
@@ -96,4 +96,4 @@ func (s *Store) Open(ctx context.Context, bucket, name string) (io.ReadCloser, e
 }
 
 // Stores read state as it is decoded.
-var _ managed.StreamStore = (*Store)(nil)
+var _ tfstate.StreamStore = (*Store)(nil)

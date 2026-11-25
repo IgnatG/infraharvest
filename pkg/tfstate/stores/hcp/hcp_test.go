@@ -21,7 +21,7 @@ import (
 
 	svchost "github.com/hashicorp/terraform-svchost"
 
-	"github.com/IgnatG/infraharvest/internal/managed"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
 
 func TestStore(t *testing.T) {
@@ -364,12 +364,12 @@ func TestOpenStreamsTheState(t *testing.T) {
 		t.Fatalf("the start of the state, before the rest is sent: %q, %v", first, err)
 	}
 	close(release)
-	found := managed.Resources{}
-	if err := found.ParseFrom(io.MultiReader(strings.NewReader(string(first)), in), "acme/prod"); err != nil {
+	doc, err := tfstate.ParseFrom(io.MultiReader(strings.NewReader(string(first)), in), "acme/prod")
+	if err != nil {
 		t.Fatal(err)
 	}
-	if len(found) != 1 {
-		t.Errorf("the state manages %d resources, want 1: %v", len(found), found)
+	if len(doc.Instances) != 1 {
+		t.Errorf("the state has %d instances, want 1: %v", len(doc.Instances), doc.Instances)
 	}
 }
 

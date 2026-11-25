@@ -343,6 +343,50 @@
               }
             ]
           },
+          "pkg": {
+            "files": [
+              "**/pkg/**/*.go"
+            ],
+            "list-mode": "lax",
+            "allow": [
+              "github.com/IgnatG/infraharvest/internal/catalogue",
+              "github.com/IgnatG/infraharvest/internal/secretdetect",
+              "github.com/IgnatG/infraharvest/internal/tftypes"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "pkg/ is the public surface other modules import: it reaches only the leaf packages the catalogue, the type names and the secret detectors are, never the engine, the export, harvest, the providers or the commands, which would bring Terraform and the cloud SDKs with them"
+              }
+            ]
+          },
+          "pkg-terraform": {
+            "files": [
+              "**/pkg/**/*.go"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/hashicorp/terraform-exec",
+                "desc": "pkg/ reads state and types without running Terraform; terraform-exec and hc-install would come with every importer"
+              },
+              {
+                "pkg": "github.com/hashicorp/hc-install",
+                "desc": "pkg/ reads state and types without running Terraform; terraform-exec and hc-install would come with every importer"
+              }
+            ]
+          },
+          "secretdetect": {
+            "files": [
+              "**/internal/secretdetect/*.go",
+              "!$test"
+            ],
+            "deny": [
+              {
+                "pkg": "github.com/IgnatG/infraharvest/internal",
+                "desc": "the secret detectors import nothing of infraharvest's, so that pkg/secretscan, the engine, the export and the drift summary can all use them without a cycle or the engine"
+              }
+            ]
+          },
           "leaf": {
             "files": [
               "**/internal/fsutil/*.go",

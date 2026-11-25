@@ -1,0 +1,324 @@
+{
+  "lenient.tfstate": {
+    "Source": "testdata/lenient.tfstate",
+    "Serial": 0,
+    "Lineage": "",
+    "TerraformVersion": "",
+    "Instances": [
+      {
+        "Mode": "managed",
+        "Module": "",
+        "Type": "aws_vpc",
+        "Name": "main",
+        "Address": "aws_vpc.main",
+        "Provider": "",
+        "ID": "vpc-1",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "managed",
+        "Module": "",
+        "Type": "aws_vpc",
+        "Name": "main",
+        "Address": "aws_vpc.main",
+        "Provider": "",
+        "ID": "vpc-2",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": [
+          "a",
+          "b"
+        ]
+      }
+    ],
+    "Outputs": [
+      {
+        "Name": "a",
+        "Sensitive": false
+      },
+      {
+        "Name": "b",
+        "Sensitive": false
+      },
+      {
+        "Name": "c",
+        "Sensitive": false
+      },
+      {
+        "Name": "d",
+        "Sensitive": true
+      }
+    ],
+    "RemoteStates": null
+  },
+  "modules.tfstate": {
+    "Source": "testdata/modules.tfstate",
+    "Serial": 42,
+    "Lineage": "5b3c9a40-0f1e-4a0d-9d3e-2f6e8b1c7a11",
+    "TerraformVersion": "1.16.5",
+    "Instances": [
+      {
+        "Mode": "managed",
+        "Module": "",
+        "Type": "aws_vpc",
+        "Name": "main",
+        "Address": "aws_vpc.main",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "vpc-0abc1234",
+        "ARN": "arn:aws:ec2:eu-west-2:123456789012:vpc/vpc-0abc1234",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "managed",
+        "Module": "module.vpc",
+        "Type": "aws_subnet",
+        "Name": "private",
+        "Address": "module.vpc.aws_subnet.private[0]",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "subnet-0",
+        "ARN": "arn:aws:ec2:eu-west-2:123456789012:subnet/subnet-0",
+        "IdentityID": "",
+        "Dependencies": [
+          "aws_vpc.main",
+          "data.aws_caller_identity.current"
+        ]
+      },
+      {
+        "Mode": "managed",
+        "Module": "module.vpc",
+        "Type": "aws_subnet",
+        "Name": "private",
+        "Address": "module.vpc.aws_subnet.private[1]",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "subnet-1",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": [
+          "aws_vpc.main"
+        ]
+      },
+      {
+        "Mode": "managed",
+        "Module": "module.app[\"blue\"]",
+        "Type": "aws_s3_bucket",
+        "Name": "logs",
+        "Address": "module.app[\"blue\"].aws_s3_bucket.logs[\"eu\"]",
+        "Provider": "module.app.provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "logs-eu",
+        "ARN": "arn:aws:s3:::logs-eu",
+        "IdentityID": "account_id=123456789012,bucket=logs-eu,region=eu-west-2",
+        "Dependencies": null
+      },
+      {
+        "Mode": "managed",
+        "Module": "module.app[\"blue\"]",
+        "Type": "aws_s3_bucket",
+        "Name": "logs",
+        "Address": "module.app[\"blue\"].aws_s3_bucket.logs[\"us\"]",
+        "Provider": "module.app.provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "arn:aws:s3:::logs-us",
+        "ARN": "arn:aws:s3:::logs-us",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "aws_caller_identity",
+        "Name": "current",
+        "Address": "data.aws_caller_identity.current",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "123456789012",
+        "ARN": "arn:aws:iam::123456789012:user/ci",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "module.vpc",
+        "Type": "aws_availability_zones",
+        "Name": "all",
+        "Address": "module.vpc.data.aws_availability_zones.all",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+        "ID": "eu-west-2",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "network",
+        "Address": "data.terraform_remote_state.network",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      }
+    ],
+    "Outputs": [
+      {
+        "Name": "vpc_id",
+        "Sensitive": false
+      },
+      {
+        "Name": "db_password",
+        "Sensitive": true
+      },
+      {
+        "Name": "subnets",
+        "Sensitive": false
+      }
+    ],
+    "RemoteStates": [
+      {
+        "Address": "data.terraform_remote_state.network",
+        "Backend": "s3",
+        "Account": "",
+        "Bucket": "acme-state",
+        "Key": "network/terraform.tfstate",
+        "Host": "",
+        "Organization": "",
+        "Workspace": "prod"
+      }
+    ]
+  },
+  "remote-states.tfstate": {
+    "Source": "testdata/remote-states.tfstate",
+    "Serial": 7,
+    "Lineage": "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+    "TerraformVersion": "1.17.0",
+    "Instances": [
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "gcs",
+        "Address": "data.terraform_remote_state.gcs",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "azure",
+        "Address": "data.terraform_remote_state.azure",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "hcp",
+        "Address": "data.terraform_remote_state.hcp",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "local",
+        "Address": "data.terraform_remote_state.local",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "data",
+        "Module": "",
+        "Type": "terraform_remote_state",
+        "Name": "other",
+        "Address": "data.terraform_remote_state.other[\"a\"]",
+        "Provider": "provider[\"terraform.io/builtin/terraform\"]",
+        "ID": "",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      },
+      {
+        "Mode": "managed",
+        "Module": "",
+        "Type": "kubernetes_secret_like",
+        "Name": "odd",
+        "Address": "kubernetes_secret_like.odd",
+        "Provider": "provider[\"registry.terraform.io/hashicorp/kubernetes\"]",
+        "ID": "ns/odd",
+        "ARN": "",
+        "IdentityID": "",
+        "Dependencies": null
+      }
+    ],
+    "Outputs": null,
+    "RemoteStates": [
+      {
+        "Address": "data.terraform_remote_state.gcs",
+        "Backend": "gcs",
+        "Account": "",
+        "Bucket": "acme-gcs-state",
+        "Key": "network",
+        "Host": "",
+        "Organization": "",
+        "Workspace": ""
+      },
+      {
+        "Address": "data.terraform_remote_state.azure",
+        "Backend": "azurerm",
+        "Account": "acmestate",
+        "Bucket": "tfstate",
+        "Key": "network.tfstate",
+        "Host": "",
+        "Organization": "",
+        "Workspace": ""
+      },
+      {
+        "Address": "data.terraform_remote_state.hcp",
+        "Backend": "remote",
+        "Account": "",
+        "Bucket": "",
+        "Key": "",
+        "Host": "tfe.example.com",
+        "Organization": "acme",
+        "Workspace": "network-prod"
+      },
+      {
+        "Address": "data.terraform_remote_state.local",
+        "Backend": "local",
+        "Account": "",
+        "Bucket": "",
+        "Key": "../network/terraform.tfstate",
+        "Host": "",
+        "Organization": "",
+        "Workspace": ""
+      },
+      {
+        "Address": "data.terraform_remote_state.other[\"a\"]",
+        "Backend": "consul",
+        "Account": "",
+        "Bucket": "",
+        "Key": "",
+        "Host": "",
+        "Organization": "",
+        "Workspace": ""
+      }
+    ]
+  }
+}

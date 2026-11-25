@@ -8,16 +8,79 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/IgnatG/infraharvest/internal/tftypes"
+	"github.com/IgnatG/infraharvest/pkg/tfstate"
 )
+
+// wholeResource is what Parse read of a resource of a state before it was
+// moved to pkg/tfstate and made to keep more: the reference ParseFrom must
+// still agree with.
+type wholeResource struct {
+	Mode      string `json:"mode"`
+	Module    string `json:"module"`
+	Type      string `json:"type"`
+	Name      string `json:"name"`
+	Instances []struct {
+		IndexKey   any            `json:"index_key"`
+		Identity   map[string]any `json:"identity"`
+		Attributes struct {
+			ID  string `json:"id"`
+			ARN string `json:"arn"`
+		} `json:"attributes"`
+	} `json:"instances"`
+}
+
+// addWhole adds what Parse added of res, one resource of a state found at
+// where, to found, as it did before the move.
+func addWhole(found Resources, res wholeResource, where string) {
+	if res.Mode != "managed" {
+		return
+	}
+	for _, i := range res.Instances {
+		stateID := i.Attributes.ID
+		if stateID == "" {
+			stateID = i.Attributes.ARN
+		}
+		ids := []string{i.Attributes.ID, i.Attributes.ARN}
+		if identity, ok := tftypes.IdentityValues(i.Identity); ok {
+			ids = append(ids, tftypes.IdentityID(identity))
+		}
+		for _, id := range ids {
+			if id != "" {
+				found[key(res.Type, id)] = Resource{Where: where, Type: res.Type, Address: wholeAddress(res.Module, res.Type, res.Name, i.IndexKey), ID: stateID}
+			}
+		}
+	}
+}
+
+// wholeAddress is the address Parse gave an instance before the move.
+func wholeAddress(module, typ, name string, index any) string {
+	if name == "" {
+		return ""
+	}
+	a := typ + "." + name
+	if module != "" {
+		a = module + "." + a
+	}
+	switch k := index.(type) {
+	case float64:
+		a += "[" + strconv.FormatFloat(k, 'f', -1, 64) + "]"
+	case string:
+		a += "[" + strconv.Quote(k) + "]"
+	}
+	return a
+}
 
 // parseWhole is Parse as it was before it decoded a state as it read it:
 // the whole state unmarshalled at once. ParseFrom must agree with it.
 func parseWhole(r Resources, content []byte, where string) error {
 	var state struct {
 		Version   int             `json:"version"`
-		Resources []stateResource `json:"resources"`
+		Resources []wholeResource `json:"resources"`
 	}
 	if err := json.Unmarshal(content, &state); err != nil {
 		return err
@@ -26,7 +89,7 @@ func parseWhole(r Resources, content []byte, where string) error {
 		return fmt.Errorf("version %d", state.Version)
 	}
 	for _, res := range state.Resources {
-		addResource(r, res, where)
+		addWhole(r, res, where)
 	}
 	return nil
 }
@@ -133,24 +196,6 @@ func resourcesTwice(content []byte) bool {
 	return seen > 1
 }
 
-// TestParseFromLimit checks that a state larger than stateSizeLimit
-// fails as ReadState fails it, with nothing added.
-func TestParseFromLimit(t *testing.T) {
-	limit := stateSizeLimit
-	defer func() { stateSizeLimit = limit }()
-	stateSizeLimit = 1 << 10
-	big := `{"version": 4, "outputs": {"a": "` + strings.Repeat("x", 2<<10) + `"}, "resources": []}`
-	r := Resources{}
-	if err := r.ParseFrom(strings.NewReader(big), "w"); err == nil || !strings.Contains(err.Error(), "larger than") || len(r) != 0 {
-		t.Errorf("a state over the limit: %v, %v", err, r)
-	}
-	exact := `{"version": 4, "resources": []}`
-	stateSizeLimit = int64(len(exact))
-	if err := r.ParseFrom(strings.NewReader(exact), "w"); err != nil {
-		t.Errorf("a state of the limit: %v", err)
-	}
-}
-
 // largeState returns a state of n resources, each with attributes as many
 // as a real resource's.
 func largeState(n int) []byte {
@@ -186,7 +231,7 @@ func BenchmarkParseWhole(b *testing.B) {
 	b.SetBytes(int64(len(content)))
 	b.ReportAllocs()
 	for b.Loop() {
-		read, err := ReadState(bytes.NewReader(content))
+		read, err := tfstate.ReadState(bytes.NewReader(content))
 		if err != nil {
 			b.Fatal(err)
 		}

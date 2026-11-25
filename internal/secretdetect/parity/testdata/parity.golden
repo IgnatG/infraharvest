@@ -1,0 +1,688 @@
+## name
+0	false
+1	true
+2	true
+3	true
+4	true
+5	true
+6	true
+7	true
+8	false
+9	false
+10	true
+11	false
+12	false
+13	false
+14	false
+15	false
+16	true
+17	false
+18	false
+19	false
+20	false
+21	false
+22	true
+23	true
+24	true
+25	false
+26	true
+27	true
+28	true
+29	false
+30	false
+31	false
+32	false
+33	false
+34	false
+35	true
+36	true
+37	true
+38	true
+39	false
+40	false
+41	false
+42	false
+43	true
+44	false
+45	false
+46	true
+47	false
+## format
+0	""
+1	""
+2	""
+3	""
+4	""
+5	""
+6	""
+7	""
+8	""
+9	""
+10	""
+11	""
+12	""
+13	""
+14	""
+15	""
+16	""
+17	""
+18	""
+19	""
+20	""
+21	""
+22	""
+23	""
+24	""
+25	""
+26	""
+27	""
+28	""
+29	""
+30	""
+31	""
+32	""
+33	""
+34	""
+35	""
+36	""
+37	""
+38	""
+39	""
+40	""
+41	""
+42	""
+43	""
+44	""
+45	"password in a URL"
+46	"credential in an Authorization header"
+47	"GitHub token"
+48	""
+49	""
+50	""
+51	""
+52	""
+53	""
+54	""
+55	""
+56	""
+57	""
+58	""
+59	""
+60	""
+61	""
+62	""
+63	""
+64	""
+65	""
+66	""
+67	""
+68	""
+69	""
+70	""
+71	""
+72	""
+73	""
+74	""
+75	""
+76	""
+77	""
+78	""
+79	"Azure SAS token"
+80	"password in a URL"
+81	""
+82	""
+83	""
+84	""
+85	""
+86	""
+87	""
+88	""
+89	""
+90	""
+91	""
+92	""
+93	"credential in an Authorization header"
+94	"credential in an Authorization header"
+95	"credential in an Authorization header"
+96	""
+97	""
+98	""
+99	"GitHub token"
+100	"GitHub fine-grained token"
+101	"GitLab token"
+102	"API key"
+103	"API key"
+104	"Stripe secret key"
+105	"Stripe restricted key"
+106	"Slack token"
+107	"SendGrid key"
+108	"npm token"
+109	"Google API key"
+110	"JSON Web Token"
+111	"private key"
+112	"private key"
+113	"Slack webhook"
+114	"Discord webhook"
+115	"Microsoft Teams webhook"
+116	"Zapier webhook"
+117	""
+118	"password in a connection string"
+119	""
+120	"Azure storage key"
+121	"Azure shared access key"
+122	"Azure SAS token"
+123	""
+124	""
+125	""
+126	""
+127	""
+128	""
+129	""
+130	""
+## reason
+0	"looks like a Azure SAS token"
+1	"looks like a password in a URL"
+2	"looks like a random key or token"
+3	"looks like a credential in an Authorization header"
+4	"looks like a GitHub token"
+5	"looks like a GitHub fine-grained token"
+6	"looks like a GitLab token"
+7	"looks like a API key"
+8	"looks like a Stripe secret key"
+9	"looks like a Stripe restricted key"
+:	"looks like a Slack token"
+;	"looks like a SendGrid key"
+<	"looks like a npm token"
+=	"looks like a Google API key"
+>	"looks like a JSON Web Token"
+?	"looks like a private key"
+@	"looks like a Slack webhook"
+A	"looks like a Discord webhook"
+B	"looks like a Microsoft Teams webhook"
+C	"looks like a Zapier webhook"
+D	"looks like a password in a connection string"
+E	"looks like a Azure storage key"
+F	"looks like a Azure shared access key"
+G	"its name says it is a secret"
+0	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+1	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+2	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+3	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+4	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+5	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+6	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+7	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+8	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+9	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+10	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+11	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+12	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+13	-------------------------------01------22----333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+14	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+15	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+16	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+17	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+18	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+19	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+20	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+21	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+22	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+23	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+24	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+25	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+26	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+27	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+28	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+29	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+30	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+31	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+32	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+33	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+34	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+35	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+36	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+37	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+38	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+39	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+40	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+41	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+42	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+43	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+44	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+45	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+46	--------GGGGGGGGGGG-G---------G01-GGGGGGGGGGG333GGG4567789:;<=>??@ABC-DGEF0GG--GGGG	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+47	-------------------------------01-22222222---333---4567789:;<=>??@ABC-D-EF0--------	-------------------------------01------------333---4567789:;<=>??@ABC-D-EF0--------
+## infile
+0	""
+1	""
+2	""
+3	""
+4	""
+5	""
+6	""
+7	""
+8	""
+9	""
+10	""
+11	""
+12	""
+13	""
+14	""
+15	""
+16	""
+17	""
+18	""
+19	""
+20	""
+21	""
+22	""
+23	""
+24	""
+25	""
+26	""
+27	""
+28	""
+29	""
+30	""
+31	"f.md: looks like it contains a Azure SAS token"
+32	"f.md: looks like it contains a password in a URL"
+33	""
+34	""
+35	""
+36	""
+37	""
+38	""
+39	""
+40	""
+41	""
+42	""
+43	""
+44	""
+45	""
+46	""
+47	""
+48	""
+49	""
+50	""
+51	"f.md: looks like it contains a GitHub token"
+52	"f.md: looks like it contains a GitHub fine-grained token"
+53	"f.md: looks like it contains a GitLab token"
+54	"f.md: looks like it contains a API key"
+55	"f.md: looks like it contains a API key"
+56	"f.md: looks like it contains a Stripe secret key"
+57	"f.md: looks like it contains a Stripe restricted key"
+58	"f.md: looks like it contains a Slack token"
+59	"f.md: looks like it contains a SendGrid key"
+60	"f.md: looks like it contains a npm token"
+61	"f.md: looks like it contains a Google API key"
+62	"f.md: looks like it contains a JSON Web Token"
+63	"f.md: looks like it contains a private key"
+64	"f.md: looks like it contains a private key"
+65	"f.md: looks like it contains a Slack webhook"
+66	"f.md: looks like it contains a Discord webhook"
+67	"f.md: looks like it contains a Microsoft Teams webhook"
+68	"f.md: looks like it contains a Zapier webhook"
+69	""
+70	""
+71	""
+72	"f.md: looks like it contains a Azure storage key"
+73	"f.md: looks like it contains a Azure shared access key"
+74	"f.md: looks like it contains a Azure SAS token"
+75	""
+76	""
+77	""
+78	""
+79	""
+80	""
+81	""
+82	""
+## looks
+0	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+1	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+2	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+3	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+4	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+5	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+6	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+7	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+8	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+9	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+10	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+11	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+12	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+13	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnyynnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+14	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+15	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+16	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+17	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+18	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+19	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+20	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+21	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+22	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+23	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+24	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+25	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+26	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+27	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+28	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+29	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+30	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+31	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+32	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+33	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+34	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+35	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+36	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+37	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+38	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+39	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+40	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynyyyyyyyynnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+41	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+42	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+43	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+44	nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnyynnnnnnnnnnnnyyynnnyyyyyyyyyyyyyyyyyynynyyynnnnnnnn
+45	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+46	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+47	yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+## tags
+T	plain	0	""	""	tags	[]	""
+T	plain	0	"logs-bucket"	"logs"	tags	[]	""
+T	plain	0	"web"	"web"	tags	[]	""
+T	plain	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	plain	1	""	""	tags	[]	""
+T	plain	1	"logs-bucket"	"logs"	tags	[]	""
+T	plain	1	"web"	"web"	tags	[]	""
+T	plain	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	plain	2	""	""	tags	["Environment"="prod" "Name"="web" "owner"="platform"]	""
+T	plain	2	"logs-bucket"	"logs"	tags	["Environment"="prod" "Name"="web" "owner"="platform"]	""
+T	plain	2	"web"	"web"	tags	["Environment"="prod" "Name"="web" "owner"="platform"]	""
+T	plain	2	"vpc-0abc1234"	"main"	tags	["Environment"="prod" "Name"="web" "owner"="platform"]	""
+T	plain	3	""	""	tags	["Name"="logs-bucket" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	plain	3	"logs-bucket"	"logs"	tags	["Name"="logs-bucket" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	plain	3	"web"	"web"	tags	["Name"="logs-bucket" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	plain	3	"vpc-0abc1234"	"main"	tags	["Name"="logs-bucket" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	plain	4	""	""	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	plain	4	"logs-bucket"	"logs"	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	plain	4	"web"	"web"	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	plain	4	"vpc-0abc1234"	"main"	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	plain	5	""	""	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	plain	5	"logs-bucket"	"logs"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	plain	5	"web"	"web"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	plain	5	"vpc-0abc1234"	"main"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	plain	6	""	""	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	plain	6	"logs-bucket"	"logs"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	plain	6	"web"	"web"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	plain	6	"vpc-0abc1234"	"main"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	plain	7	""	""	tags	["ok"="fine"]	"k"
+T	plain	7	"logs-bucket"	"logs"	tags	["ok"="fine"]	"k"
+T	plain	7	"web"	"web"	tags	["ok"="fine"]	"k"
+T	plain	7	"vpc-0abc1234"	"main"	tags	["ok"="fine"]	"k"
+T	plain	8	""	""	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	plain	8	"logs-bucket"	"logs"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	plain	8	"web"	"web"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	plain	8	"vpc-0abc1234"	"main"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	plain	9	""	""	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	plain	9	"logs-bucket"	"logs"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	plain	9	"web"	"web"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	plain	9	"vpc-0abc1234"	"main"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	plain	10	""	""	tags	["region"="eu-west-2"]	"auth,connection"
+T	plain	10	"logs-bucket"	"logs"	tags	["region"="eu-west-2"]	"auth,connection"
+T	plain	10	"web"	"web"	tags	["region"="eu-west-2"]	"auth,connection"
+T	plain	10	"vpc-0abc1234"	"main"	tags	["region"="eu-west-2"]	"auth,connection"
+H	plain	""	""
+H	plain	"a"	"a"
+H	plain	"vpc-0abc1234"	"vpc-0abc1234"
+H	plain	"arn:aws:s3:::logs-bucket"	"arn:aws:s3:::logs-bucket"
+H	plain	"module.logs.aws_s3_bucket.this[0]"	"module.logs.aws_s3_bucket.this[0]"
+H	plain	"ünï"	"ünï"
+T	drop-tag	0	""	""	tags	[]	""
+T	drop-tag	0	"logs-bucket"	"logs"	tags	[]	""
+T	drop-tag	0	"web"	"web"	tags	[]	""
+T	drop-tag	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	drop-tag	1	""	""	tags	[]	""
+T	drop-tag	1	"logs-bucket"	"logs"	tags	[]	""
+T	drop-tag	1	"web"	"web"	tags	[]	""
+T	drop-tag	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	drop-tag	2	""	""	tags	["Environment"="prod" "Name"="web"]	"owner"
+T	drop-tag	2	"logs-bucket"	"logs"	tags	["Environment"="prod" "Name"="web"]	"owner"
+T	drop-tag	2	"web"	"web"	tags	["Environment"="prod" "Name"="web"]	"owner"
+T	drop-tag	2	"vpc-0abc1234"	"main"	tags	["Environment"="prod" "Name"="web"]	"owner"
+T	drop-tag	3	""	""	tags	["Name"="logs-bucket" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	"alias"
+T	drop-tag	3	"logs-bucket"	"logs"	tags	["Name"="logs-bucket" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	"alias"
+T	drop-tag	3	"web"	"web"	tags	["Name"="logs-bucket" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	"alias"
+T	drop-tag	3	"vpc-0abc1234"	"main"	tags	["Name"="logs-bucket" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	"alias"
+T	drop-tag	4	""	""	tags	["kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	"env"
+T	drop-tag	4	"logs-bucket"	"logs"	tags	["kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	"env"
+T	drop-tag	4	"web"	"web"	tags	["kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	"env"
+T	drop-tag	4	"vpc-0abc1234"	"main"	tags	["kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	"env"
+T	drop-tag	5	""	""	tags	["note"="keep the API secret safe"]	"db_password,env"
+T	drop-tag	5	"logs-bucket"	"logs"	tags	["note"="keep the API secret safe"]	"db_password,env"
+T	drop-tag	5	"web"	"web"	tags	["note"="keep the API secret safe"]	"db_password,env"
+T	drop-tag	5	"vpc-0abc1234"	"main"	tags	["note"="keep the API secret safe"]	"db_password,env"
+T	drop-tag	6	""	""	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	drop-tag	6	"logs-bucket"	"logs"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	drop-tag	6	"web"	"web"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	drop-tag	6	"vpc-0abc1234"	"main"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	drop-tag	7	""	""	tags	["ok"="fine"]	"k"
+T	drop-tag	7	"logs-bucket"	"logs"	tags	["ok"="fine"]	"k"
+T	drop-tag	7	"web"	"web"	tags	["ok"="fine"]	"k"
+T	drop-tag	7	"vpc-0abc1234"	"main"	tags	["ok"="fine"]	"k"
+T	drop-tag	8	""	""	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	drop-tag	8	"logs-bucket"	"logs"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	drop-tag	8	"web"	"web"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	drop-tag	8	"vpc-0abc1234"	"main"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	drop-tag	9	""	""	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	drop-tag	9	"logs-bucket"	"logs"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	drop-tag	9	"web"	"web"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	drop-tag	9	"vpc-0abc1234"	"main"	tags	["Name"="a" "n"="web-1" "short"="ab" "x"="a"]	""
+T	drop-tag	10	""	""	tags	["region"="eu-west-2"]	"auth,connection"
+T	drop-tag	10	"logs-bucket"	"logs"	tags	["region"="eu-west-2"]	"auth,connection"
+T	drop-tag	10	"web"	"web"	tags	["region"="eu-west-2"]	"auth,connection"
+T	drop-tag	10	"vpc-0abc1234"	"main"	tags	["region"="eu-west-2"]	"auth,connection"
+H	drop-tag	""	""
+H	drop-tag	"a"	"a"
+H	drop-tag	"vpc-0abc1234"	"vpc-0abc1234"
+H	drop-tag	"arn:aws:s3:::logs-bucket"	"arn:aws:s3:::logs-bucket"
+H	drop-tag	"module.logs.aws_s3_bucket.this[0]"	"module.logs.aws_s3_bucket.this[0]"
+H	drop-tag	"ünï"	"ünï"
+T	drop-tags	0	""	""	tags	[]	""
+T	drop-tags	0	"logs-bucket"	"logs"	tags	[]	""
+T	drop-tags	0	"web"	"web"	tags	[]	""
+T	drop-tags	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	drop-tags	1	""	""	tags	[]	""
+T	drop-tags	1	"logs-bucket"	"logs"	tags	[]	""
+T	drop-tags	1	"web"	"web"	tags	[]	""
+T	drop-tags	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	drop-tags	2	""	""	tags	[]	"Environment,Name,owner"
+T	drop-tags	2	"logs-bucket"	"logs"	tags	[]	"Environment,Name,owner"
+T	drop-tags	2	"web"	"web"	tags	[]	"Environment,Name,owner"
+T	drop-tags	2	"vpc-0abc1234"	"main"	tags	[]	"Environment,Name,owner"
+T	drop-tags	3	""	""	tags	[]	"Name,alias,arn,url"
+T	drop-tags	3	"logs-bucket"	"logs"	tags	[]	"Name,alias,arn,url"
+T	drop-tags	3	"web"	"web"	tags	[]	"Name,alias,arn,url"
+T	drop-tags	3	"vpc-0abc1234"	"main"	tags	[]	"Name,alias,arn,url"
+T	drop-tags	4	""	""	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	drop-tags	4	"logs-bucket"	"logs"	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	drop-tags	4	"web"	"web"	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	drop-tags	4	"vpc-0abc1234"	"main"	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	drop-tags	5	""	""	tags	[]	"db_password,env,note"
+T	drop-tags	5	"logs-bucket"	"logs"	tags	[]	"db_password,env,note"
+T	drop-tags	5	"web"	"web"	tags	[]	"db_password,env,note"
+T	drop-tags	5	"vpc-0abc1234"	"main"	tags	[]	"db_password,env,note"
+T	drop-tags	6	""	""	tags	[]	"checksum,commit,token,version"
+T	drop-tags	6	"logs-bucket"	"logs"	tags	[]	"checksum,commit,token,version"
+T	drop-tags	6	"web"	"web"	tags	[]	"checksum,commit,token,version"
+T	drop-tags	6	"vpc-0abc1234"	"main"	tags	[]	"checksum,commit,token,version"
+T	drop-tags	7	""	""	tags	[]	"k,ok"
+T	drop-tags	7	"logs-bucket"	"logs"	tags	[]	"k,ok"
+T	drop-tags	7	"web"	"web"	tags	[]	"k,ok"
+T	drop-tags	7	"vpc-0abc1234"	"main"	tags	[]	"k,ok"
+T	drop-tags	8	""	""	tags	[]	"Application,Cost Center,cost-center,id"
+T	drop-tags	8	"logs-bucket"	"logs"	tags	[]	"Application,Cost Center,cost-center,id"
+T	drop-tags	8	"web"	"web"	tags	[]	"Application,Cost Center,cost-center,id"
+T	drop-tags	8	"vpc-0abc1234"	"main"	tags	[]	"Application,Cost Center,cost-center,id"
+T	drop-tags	9	""	""	tags	[]	"Name,n,short,x"
+T	drop-tags	9	"logs-bucket"	"logs"	tags	[]	"Name,n,short,x"
+T	drop-tags	9	"web"	"web"	tags	[]	"Name,n,short,x"
+T	drop-tags	9	"vpc-0abc1234"	"main"	tags	[]	"Name,n,short,x"
+T	drop-tags	10	""	""	tags	[]	"auth,connection,region"
+T	drop-tags	10	"logs-bucket"	"logs"	tags	[]	"auth,connection,region"
+T	drop-tags	10	"web"	"web"	tags	[]	"auth,connection,region"
+T	drop-tags	10	"vpc-0abc1234"	"main"	tags	[]	"auth,connection,region"
+H	drop-tags	""	""
+H	drop-tags	"a"	"a"
+H	drop-tags	"vpc-0abc1234"	"vpc-0abc1234"
+H	drop-tags	"arn:aws:s3:::logs-bucket"	"arn:aws:s3:::logs-bucket"
+H	drop-tags	"module.logs.aws_s3_bucket.this[0]"	"module.logs.aws_s3_bucket.this[0]"
+H	drop-tags	"ünï"	"ünï"
+T	hash	0	""	""	tags	[]	""
+T	hash	0	"logs-bucket"	"logs"	tags	[]	""
+T	hash	0	"web"	"web"	tags	[]	""
+T	hash	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash	1	""	""	tags	[]	""
+T	hash	1	"logs-bucket"	"logs"	tags	[]	""
+T	hash	1	"web"	"web"	tags	[]	""
+T	hash	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash	2	""	""	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd" "owner"="platform"]	""
+T	hash	2	"logs-bucket"	"logs"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd" "owner"="platform"]	""
+T	hash	2	"web"	"web"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd" "owner"="platform"]	""
+T	hash	2	"vpc-0abc1234"	"main"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd" "owner"="platform"]	""
+T	hash	3	""	""	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash	3	"logs-bucket"	"logs"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="268a81544edc971f4896796107656c13b5b6103a062fe41c1fd373607805e890" "arn"="a9d94bcbf2a72dddaf694bb93e5dc5b946b2412c50594addc044b6f9099db8ea" "url"="0fb6abd3574532b89a18c2b45e9db6bfc7a14412bf8f5b7ab1f8958b8fa72d7a"]	""
+T	hash	3	"web"	"web"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash	3	"vpc-0abc1234"	"main"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash	4	""	""	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	hash	4	"logs-bucket"	"logs"	tags	["env"="prod" "team"="a"]	""
+T	hash	4	"web"	"web"	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	hash	4	"vpc-0abc1234"	"main"	tags	["env"="prod" "kubernetes.io/cluster/logs-bucket"="owned" "team"="a"]	""
+T	hash	5	""	""	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash	5	"logs-bucket"	"logs"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash	5	"web"	"web"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash	5	"vpc-0abc1234"	"main"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash	6	""	""	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash	6	"logs-bucket"	"logs"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash	6	"web"	"web"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash	6	"vpc-0abc1234"	"main"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash	7	""	""	tags	["ok"="fine"]	"k"
+T	hash	7	"logs-bucket"	"logs"	tags	["ok"="fine"]	"k"
+T	hash	7	"web"	"web"	tags	["ok"="fine"]	"k"
+T	hash	7	"vpc-0abc1234"	"main"	tags	["ok"="fine"]	"k"
+T	hash	8	""	""	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash	8	"logs-bucket"	"logs"	tags	["Application"="268a81544edc971f4896796107656c13b5b6103a062fe41c1fd373607805e890" "Cost Center"="CC-99" "cost-center"="1234" "id"="036ae41d813419fe77b9de640ae436362965f475259e862e7f8811f0ef1934ca"]	""
+T	hash	8	"web"	"web"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash	8	"vpc-0abc1234"	"main"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash	9	""	""	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash	9	"logs-bucket"	"logs"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash	9	"web"	"web"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash	9	"vpc-0abc1234"	"main"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash	10	""	""	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash	10	"logs-bucket"	"logs"	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash	10	"web"	"web"	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash	10	"vpc-0abc1234"	"main"	tags	["region"="eu-west-2"]	"auth,connection"
+H	hash	""	""
+H	hash	"a"	"f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050"
+H	hash	"vpc-0abc1234"	"2ceb98ba3a84c32f2c51c649a17aefcdd8cf9324ba1be6f7df17459cd9d4ee11"
+H	hash	"arn:aws:s3:::logs-bucket"	"a9d94bcbf2a72dddaf694bb93e5dc5b946b2412c50594addc044b6f9099db8ea"
+H	hash	"module.logs.aws_s3_bucket.this[0]"	"0a68de656b24f554d6bc81ce33671dd7f3031a13eb7fd4e4207cb79385123fe3"
+H	hash	"ünï"	"633515f23d4f601a7b575e2bab048b8d12fb0cdebaffa5b4a23ee91d8b575636"
+T	hash+drop	0	""	""	tags	[]	""
+T	hash+drop	0	"logs-bucket"	"logs"	tags	[]	""
+T	hash+drop	0	"web"	"web"	tags	[]	""
+T	hash+drop	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash+drop	1	""	""	tags	[]	""
+T	hash+drop	1	"logs-bucket"	"logs"	tags	[]	""
+T	hash+drop	1	"web"	"web"	tags	[]	""
+T	hash+drop	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash+drop	2	""	""	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd"]	"owner"
+T	hash+drop	2	"logs-bucket"	"logs"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd"]	"owner"
+T	hash+drop	2	"web"	"web"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd"]	"owner"
+T	hash+drop	2	"vpc-0abc1234"	"main"	tags	["Environment"="prod" "Name"="2944c77e3a486852c8d34e2dbeb986ae14facc4a3e56ebd42d558889574e1fcd"]	"owner"
+T	hash+drop	3	""	""	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash+drop	3	"logs-bucket"	"logs"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="268a81544edc971f4896796107656c13b5b6103a062fe41c1fd373607805e890" "arn"="a9d94bcbf2a72dddaf694bb93e5dc5b946b2412c50594addc044b6f9099db8ea" "url"="0fb6abd3574532b89a18c2b45e9db6bfc7a14412bf8f5b7ab1f8958b8fa72d7a"]	""
+T	hash+drop	3	"web"	"web"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash+drop	3	"vpc-0abc1234"	"main"	tags	["Name"="d545614996ddb34ce9b1b7010c272ea769acd31a07bc833af9966694b145fbe7" "alias"="logs" "arn"="arn:aws:s3:::logs-bucket" "url"="https://logs-bucket.s3.amazonaws.com/x"]	""
+T	hash+drop	4	""	""	tags	["env"="prod" "team"="a"]	"kubernetes.io/cluster/logs-bucket"
+T	hash+drop	4	"logs-bucket"	"logs"	tags	["env"="prod" "team"="a"]	""
+T	hash+drop	4	"web"	"web"	tags	["env"="prod" "team"="a"]	"kubernetes.io/cluster/logs-bucket"
+T	hash+drop	4	"vpc-0abc1234"	"main"	tags	["env"="prod" "team"="a"]	"kubernetes.io/cluster/logs-bucket"
+T	hash+drop	5	""	""	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash+drop	5	"logs-bucket"	"logs"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash+drop	5	"web"	"web"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash+drop	5	"vpc-0abc1234"	"main"	tags	["env"="prod" "note"="keep the API secret safe"]	"db_password"
+T	hash+drop	6	""	""	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash+drop	6	"logs-bucket"	"logs"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash+drop	6	"web"	"web"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash+drop	6	"vpc-0abc1234"	"main"	tags	["checksum"="978c2f8941354cf552831bb8b5b648bb3748e83f5d0a69e3301569af01e1de93" "commit"="978c2f8941354cf552831bb8b5b648bb3748e83f" "version"="1.2.3"]	"token"
+T	hash+drop	7	""	""	tags	["ok"="fine"]	"k"
+T	hash+drop	7	"logs-bucket"	"logs"	tags	["ok"="fine"]	"k"
+T	hash+drop	7	"web"	"web"	tags	["ok"="fine"]	"k"
+T	hash+drop	7	"vpc-0abc1234"	"main"	tags	["ok"="fine"]	"k"
+T	hash+drop	8	""	""	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash+drop	8	"logs-bucket"	"logs"	tags	["Application"="268a81544edc971f4896796107656c13b5b6103a062fe41c1fd373607805e890" "Cost Center"="CC-99" "cost-center"="1234" "id"="036ae41d813419fe77b9de640ae436362965f475259e862e7f8811f0ef1934ca"]	""
+T	hash+drop	8	"web"	"web"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash+drop	8	"vpc-0abc1234"	"main"	tags	["Application"="logs" "Cost Center"="CC-99" "cost-center"="1234" "id"="logs-bucket-1"]	""
+T	hash+drop	9	""	""	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash+drop	9	"logs-bucket"	"logs"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash+drop	9	"web"	"web"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash+drop	9	"vpc-0abc1234"	"main"	tags	["Name"="f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050" "n"="web-1" "short"="ab" "x"="a"]	""
+T	hash+drop	10	""	""	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash+drop	10	"logs-bucket"	"logs"	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash+drop	10	"web"	"web"	tags	["region"="eu-west-2"]	"auth,connection"
+T	hash+drop	10	"vpc-0abc1234"	"main"	tags	["region"="eu-west-2"]	"auth,connection"
+H	hash+drop	""	""
+H	hash+drop	"a"	"f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050"
+H	hash+drop	"vpc-0abc1234"	"2ceb98ba3a84c32f2c51c649a17aefcdd8cf9324ba1be6f7df17459cd9d4ee11"
+H	hash+drop	"arn:aws:s3:::logs-bucket"	"a9d94bcbf2a72dddaf694bb93e5dc5b946b2412c50594addc044b6f9099db8ea"
+H	hash+drop	"module.logs.aws_s3_bucket.this[0]"	"0a68de656b24f554d6bc81ce33671dd7f3031a13eb7fd4e4207cb79385123fe3"
+H	hash+drop	"ünï"	"633515f23d4f601a7b575e2bab048b8d12fb0cdebaffa5b4a23ee91d8b575636"
+T	hash+drop-tags	0	""	""	tags	[]	""
+T	hash+drop-tags	0	"logs-bucket"	"logs"	tags	[]	""
+T	hash+drop-tags	0	"web"	"web"	tags	[]	""
+T	hash+drop-tags	0	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash+drop-tags	1	""	""	tags	[]	""
+T	hash+drop-tags	1	"logs-bucket"	"logs"	tags	[]	""
+T	hash+drop-tags	1	"web"	"web"	tags	[]	""
+T	hash+drop-tags	1	"vpc-0abc1234"	"main"	tags	[]	""
+T	hash+drop-tags	2	""	""	tags	[]	"Environment,Name,owner"
+T	hash+drop-tags	2	"logs-bucket"	"logs"	tags	[]	"Environment,Name,owner"
+T	hash+drop-tags	2	"web"	"web"	tags	[]	"Environment,Name,owner"
+T	hash+drop-tags	2	"vpc-0abc1234"	"main"	tags	[]	"Environment,Name,owner"
+T	hash+drop-tags	3	""	""	tags	[]	"Name,alias,arn,url"
+T	hash+drop-tags	3	"logs-bucket"	"logs"	tags	[]	"Name,alias,arn,url"
+T	hash+drop-tags	3	"web"	"web"	tags	[]	"Name,alias,arn,url"
+T	hash+drop-tags	3	"vpc-0abc1234"	"main"	tags	[]	"Name,alias,arn,url"
+T	hash+drop-tags	4	""	""	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	hash+drop-tags	4	"logs-bucket"	"logs"	tags	[]	"env,team"
+T	hash+drop-tags	4	"web"	"web"	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	hash+drop-tags	4	"vpc-0abc1234"	"main"	tags	[]	"env,kubernetes.io/cluster/logs-bucket,team"
+T	hash+drop-tags	5	""	""	tags	[]	"db_password,env,note"
+T	hash+drop-tags	5	"logs-bucket"	"logs"	tags	[]	"db_password,env,note"
+T	hash+drop-tags	5	"web"	"web"	tags	[]	"db_password,env,note"
+T	hash+drop-tags	5	"vpc-0abc1234"	"main"	tags	[]	"db_password,env,note"
+T	hash+drop-tags	6	""	""	tags	[]	"checksum,commit,token,version"
+T	hash+drop-tags	6	"logs-bucket"	"logs"	tags	[]	"checksum,commit,token,version"
+T	hash+drop-tags	6	"web"	"web"	tags	[]	"checksum,commit,token,version"
+T	hash+drop-tags	6	"vpc-0abc1234"	"main"	tags	[]	"checksum,commit,token,version"
+T	hash+drop-tags	7	""	""	tags	[]	"k,ok"
+T	hash+drop-tags	7	"logs-bucket"	"logs"	tags	[]	"k,ok"
+T	hash+drop-tags	7	"web"	"web"	tags	[]	"k,ok"
+T	hash+drop-tags	7	"vpc-0abc1234"	"main"	tags	[]	"k,ok"
+T	hash+drop-tags	8	""	""	tags	[]	"Application,Cost Center,cost-center,id"
+T	hash+drop-tags	8	"logs-bucket"	"logs"	tags	[]	"Application,Cost Center,cost-center,id"
+T	hash+drop-tags	8	"web"	"web"	tags	[]	"Application,Cost Center,cost-center,id"
+T	hash+drop-tags	8	"vpc-0abc1234"	"main"	tags	[]	"Application,Cost Center,cost-center,id"
+T	hash+drop-tags	9	""	""	tags	[]	"Name,n,short,x"
+T	hash+drop-tags	9	"logs-bucket"	"logs"	tags	[]	"Name,n,short,x"
+T	hash+drop-tags	9	"web"	"web"	tags	[]	"Name,n,short,x"
+T	hash+drop-tags	9	"vpc-0abc1234"	"main"	tags	[]	"Name,n,short,x"
+T	hash+drop-tags	10	""	""	tags	[]	"auth,connection,region"
+T	hash+drop-tags	10	"logs-bucket"	"logs"	tags	[]	"auth,connection,region"
+T	hash+drop-tags	10	"web"	"web"	tags	[]	"auth,connection,region"
+T	hash+drop-tags	10	"vpc-0abc1234"	"main"	tags	[]	"auth,connection,region"
+H	hash+drop-tags	""	""
+H	hash+drop-tags	"a"	"f46bfed0ef0c09e40143d5092e97e5eb5e9b77ea083295fd6150fb89ce139050"
+H	hash+drop-tags	"vpc-0abc1234"	"2ceb98ba3a84c32f2c51c649a17aefcdd8cf9324ba1be6f7df17459cd9d4ee11"
+H	hash+drop-tags	"arn:aws:s3:::logs-bucket"	"a9d94bcbf2a72dddaf694bb93e5dc5b946b2412c50594addc044b6f9099db8ea"
+H	hash+drop-tags	"module.logs.aws_s3_bucket.this[0]"	"0a68de656b24f554d6bc81ce33671dd7f3031a13eb7fd4e4207cb79385123fe3"
+H	hash+drop-tags	"ünï"	"633515f23d4f601a7b575e2bab048b8d12fb0cdebaffa5b4a23ee91d8b575636"

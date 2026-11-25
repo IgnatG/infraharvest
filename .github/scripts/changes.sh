@@ -71,9 +71,9 @@ go_lint() {
 # alone, as e2e/aws_test.go's does; a deleted one is everyone's.
 cloud_of() {
   case $1 in
-    internal/providers/aws/* | internal/catalogue/data/aws/* | internal/managed/stores/s3/*) echo aws ;;
-    internal/providers/google/* | internal/catalogue/data/google/* | internal/managed/stores/gcs/*) echo google ;;
-    internal/providers/azure/* | internal/catalogue/data/azurerm/* | internal/catalogue/data/azapi/* | internal/managed/stores/azblob/*) echo azure ;;
+    internal/providers/aws/* | internal/catalogue/data/aws/* | pkg/tfstate/stores/s3/*) echo aws ;;
+    internal/providers/google/* | internal/catalogue/data/google/* | pkg/tfstate/stores/gcs/*) echo google ;;
+    internal/providers/azure/* | internal/catalogue/data/azurerm/* | internal/catalogue/data/azapi/* | pkg/tfstate/stores/azblob/*) echo azure ;;
     internal/cli/providers/provider_cmd_aws.go | internal/cli/providers/aws_*_test.go) echo aws ;;
     internal/cli/providers/provider_cmd_google.go | internal/cli/providers/google_*_test.go) echo google ;;
     internal/cli/providers/provider_cmd_azure.go | internal/cli/providers/azure_*_test.go) echo azure ;;

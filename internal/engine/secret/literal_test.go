@@ -302,21 +302,6 @@ func TestSecretReason(t *testing.T) {
 	}
 }
 
-func TestKeyWords(t *testing.T) {
-	t.Parallel()
-	for key, want := range map[string]string{
-		"DB_PASSWORD":   "DB PASSWORD",
-		"dbPassword":    "DB PASSWORD",
-		"APIKey":        "API KEY",
-		"client-secret": "CLIENT SECRET",
-		"Oauth2Token":   "OAUTH2 TOKEN",
-	} {
-		if got := strings.Join(keyWords(key), " "); got != want {
-			t.Errorf("keyWords(%q): got %q, want %q", key, got, want)
-		}
-	}
-}
-
 // An access key ID used as a tag key isn't a secret, but is worth a
 // warning.
 func TestAccessKeyTagWarning(t *testing.T) {

@@ -39,8 +39,8 @@ func TestChangesClouds(t *testing.T) {
 		{
 			name: "a Google e2e test and a store",
 			changed: map[string]string{
-				"e2e/drift_google_test.go":           "//go:build e2e && (!minimal || google)\n\npackage e2e\n",
-				"internal/managed/stores/gcs/gcs.go": "package gcs\n",
+				"e2e/drift_google_test.go":      "//go:build e2e && (!minimal || google)\n\npackage e2e\n",
+				"pkg/tfstate/stores/gcs/gcs.go": "package gcs\n",
 			},
 			want: "code=true\npermissions=false\naws=false\ngoogle=true\nazure=false\ngo_lint=true\n",
 		},
