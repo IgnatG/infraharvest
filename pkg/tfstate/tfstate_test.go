@@ -9,6 +9,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -323,7 +324,10 @@ func TestReadRejectsOtherLocations(t *testing.T) {
 		empty:                                   "no .tfstate file in the directory",
 		filepath.Join(empty, "missing.tfstate"): "no such file",
 	} {
-		if _, err := Read(t.Context(), location, Stores{}); err == nil || !strings.Contains(err.Error(), want) {
+		_, err := Read(t.Context(), location, Stores{})
+		// A missing file is told apart by its error, not its text, which differs on Windows.
+		missing := want == "no such file" && errors.Is(err, fs.ErrNotExist)
+		if err == nil || (!missing && !strings.Contains(err.Error(), want)) {
 			t.Errorf("Read(%s): want an error with %q, got %v", location, want, err)
 		}
 		if err := CheckLocations([]string{location}); err == nil && want != "no .tfstate file in the directory" {
