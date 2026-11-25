@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/hcl/v2/hclsyntax"
 
 	"github.com/IgnatG/infraharvest/internal/engine/hclfile"
+	"github.com/IgnatG/infraharvest/internal/secretdetect"
 )
 
 // Terraform writes into the configuration it generates every value the
@@ -345,78 +346,21 @@ func scriptValue(v string) bool {
 	return v != "" && !strings.ContainsAny(v[:1], "$`<@%") && !strings.Contains(v, "$(") && !strings.Contains(v, "${")
 }
 
-// Reason says why value, going by key, is a secret, or returns "".
-// Credential formats (see CredentialFormat) are secrets anywhere. A value
-// whose key names a secret (see IsName), or that looks random
-// enough to be one (see highEntropy), is a secret only where freeForm says
-// the key is a name someone chose. A value whose key names a secret is one
-// unless it holds no secret at all (see noSecret): spaces and digits don't
-// make it plain, as a passphrase or a PIN has them. Any other value must
-// also not be plainly something else (see plainValue). An IAM policy
-// statement's Sid is its ID, however random it looks, such as the
-// AWSLogDeliveryWrite<digits> AWS gives a flow log's bucket (see policySid);
-// SESSION_SID and the like are still checked.
+// Reason says why value, going by key, is a secret, or returns "" (see
+// secretdetect.Reason, whose answers are the check's and the export's).
 func Reason(key, value string, freeForm bool) string {
-	if name := CredentialFormat(value); name != "" {
-		return "looks like a " + name
-	}
-	if !freeForm {
-		return ""
-	}
-	if IsName(key) {
-		if noSecret(value) {
-			return ""
-		}
-		return "its name says it is a secret"
-	}
-	if plainValue(value) {
-		return ""
-	}
-	if !hashLikeKey(key) && !policySid(key, value) && highEntropy(value) {
-		return "looks like a random key or token"
-	}
-	return ""
-}
-
-// policySid reports whether key and value are an IAM policy statement's
-// Sid: the key Sid as policies spell it, and a value IAM takes as one.
-func policySid(key, value string) bool {
-	return key == "Sid" && sidPattern.MatchString(value)
-}
-
-// authorizationPattern matches the value of an Authorization header with
-// the Basic or Bearer scheme.
-var authorizationPattern = regexp.MustCompile(`^(?i)(basic|bearer)\s+([A-Za-z0-9._~+/-]+=*)$`)
-
-// authorizationHeader reports whether value is an Authorization header's
-// credentials, as a scheduler job or an uptime check sends them: Basic with
-// the base64 of user:password, or Bearer with a token of 16 or more
-// characters that has digits or mixes upper and lower case, which the
-// words of a description don't.
-func authorizationHeader(value string) bool {
-	m := authorizationPattern.FindStringSubmatch(strings.TrimSpace(value))
-	if m == nil {
-		return false
-	}
-	token := m[2]
-	if strings.EqualFold(m[1], "basic") {
-		decoded, err := base64.StdEncoding.DecodeString(token)
-		return err == nil && strings.Contains(string(decoded), ":")
-	}
-	return len(token) >= 16 && (strings.ContainsAny(token, "0123456789") ||
-		(strings.ContainsAny(token, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") && strings.ContainsAny(token, "abcdefghijklmnopqrstuvwxyz")))
+	return secretdetect.Reason(key, value, freeForm)
 }
 
 // CredentialFormat returns the name of the credential format value has,
-// such as a private key, or "".
+// such as a private key, or "" (see secretdetect.CredentialFormat).
 func CredentialFormat(value string) string {
-	if authorizationHeader(value) {
-		return "credential in an Authorization header"
-	}
-	for _, p := range credentialPatterns {
-		if p.inValue.MatchString(value) {
-			return p.name
-		}
-	}
-	return ""
+	return secretdetect.CredentialFormat(value)
+}
+
+// IsName reports whether key names a secret, such as API_SECRET,
+// DB_PASSWORD or clientSecret, but not SECRET_ARN or ACCESS_KEY_ID (see
+// secretdetect.IsName).
+func IsName(key string) bool {
+	return secretdetect.IsName(key)
 }
