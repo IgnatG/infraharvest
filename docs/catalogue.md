@@ -159,7 +159,7 @@ The binary also embeds OPA's capabilities file (`internal/engine/gate/conftest_c
 
 ### Regenerating
 
-The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release, the one generated roots pin, or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files, with the `NOTICE` that names their releases, as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
+The files are generated, never edited by hand: corrections go into the overrides. The `schema-metadata` task of the `remote` workflow checks out each provider at its newest release that its import cap allows (`internal/importer/provider_caps.json`, the one generated roots pin), or at the releases `versions` names, adds the generator (`internal/catalogue/schemameta/gen`, which isn't part of infraharvest's module) to the checkout, runs it there, gzips what it writes, and uploads the files, with the `NOTICE` that names their releases, as the artifact `schema-metadata`. Its job summary says, per provider, the release before and after and the resource types added, removed and changed, as a diff of gzipped files can't:
 
 ```sh
 make ci-schema-metadata                      # or VERSIONS="aws=6.70.0"
@@ -169,7 +169,7 @@ git status internal/catalogue/schemameta     # the summary says what changed; co
 
 To read the changes yourself, `gzip -dc` a file, or let `git diff` decompress them for you: `git config diff.gzip.textconv "gzip -dc"`, with `*.json.gz diff=gzip` in `.git/info/attributes`.
 
-The `schema-metadata` workflow does the same every week for the providers' newest releases, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. It opens it with the workflow's own token, so GitHub starts none of the pull request's checks: the workflow starts the ones the main branch requires by dispatch (the tests, megalinter and docs workflows), and a maintainer closes and reopens the pull request to start CodeQL's, which no dispatch can. A file of an older release costs plans, never correctness.
+The `schema-metadata` workflow does the same every week for the providers' newest releases the import caps allow, and opens a pull request with the files where they changed, or updates the one already open, with the summary as its body. It opens it with the workflow's own token, so GitHub starts none of the pull request's checks: the workflow starts the ones the main branch requires by dispatch (the tests, megalinter and docs workflows), and a maintainer closes and reopens the pull request to start CodeQL's, which no dispatch can. A file of an older release costs plans, never correctness.
 
 ## Inventory types
 

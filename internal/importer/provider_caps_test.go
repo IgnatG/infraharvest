@@ -33,3 +33,43 @@ func TestProviderCaps(t *testing.T) {
 		}
 	}
 }
+
+// provider_caps.json parses, and each entry names a release and says why.
+func TestProviderCapsFile(t *testing.T) {
+	t.Parallel()
+	caps, err := parseProviderCaps(providerCapsJSON)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(caps) == 0 {
+		t.Fatal("no caps")
+	}
+	for source, c := range caps {
+		if c.below == nil || c.reason == "" {
+			t.Errorf("%s: incomplete cap %+v", source, c)
+		}
+		if c.below != nil && c.below.Prerelease() != "" {
+			t.Errorf("%s: below %s is a prerelease", source, c.below)
+		}
+	}
+	if got := caps["hashicorp/aws"].below.String(); got != "6.74.0" {
+		t.Errorf("hashicorp/aws below %s, want 6.74.0", got)
+	}
+}
+
+// A malformed file, release or entry is an error, not a cap.
+func TestParseProviderCapsRejects(t *testing.T) {
+	t.Parallel()
+	for name, data := range map[string]string{
+		"not JSON":        `[`,
+		"not a version":   `{"hashicorp/aws": {"below": "six", "reason": "x"}}`,
+		"no release":      `{"hashicorp/aws": {"reason": "x"}}`,
+		"no reason":       `{"hashicorp/aws": {"below": "6.74.0"}}`,
+		"no namespace":    `{"aws": {"below": "6.74.0", "reason": "x"}}`,
+		"upper-case type": `{"hashicorp/AWS": {"below": "6.74.0", "reason": "x"}}`,
+	} {
+		if _, err := parseProviderCaps([]byte(data)); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}

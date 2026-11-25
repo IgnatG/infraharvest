@@ -4,7 +4,7 @@
 name: Schema metadata
 
 # Every week, generates the schema metadata (internal/catalogue/schemameta)
-# for the providers' newest releases, and where it differs from main's,
+# for the providers' newest releases their import caps allow, and where it differs from main's,
 # opens a pull request with it, or updates the one already open, on the
 # branch schema-metadata/update. The pull request's body is the summary of
 # what changed (.github/scripts/schema-metadata-summary.sh).
