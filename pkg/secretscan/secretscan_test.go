@@ -103,3 +103,51 @@ func TestDetectors(t *testing.T) {
 		t.Error("LooksSecret does not tell a setting from a password")
 	}
 }
+
+// An Azure ID is hashed lower-cased, so the same resource hashes the same
+// whichever way a source spells it; other IDs keep their case.
+func TestHashIDFoldsAzureIDs(t *testing.T) {
+	t.Parallel()
+	key := []byte("0123456789abcdef-key")
+	const id = "/subscriptions/0000/resourceGroups/RG/providers/Microsoft.Network/virtualNetworks/VNet"
+	for _, s := range []string{id, strings.ToLower(id), strings.ToUpper(id)} {
+		if got, want := secretscan.HashID(key, s), secretscan.Hash(key, strings.ToLower(id)); got != want {
+			t.Errorf("HashID(%q) = %s, want the hash of the lower-cased ID %s", s, got, want)
+		}
+	}
+	for _, s := range []string{"arn:aws:iam::000000000000:role/Admin", "projects/p/global/networks/Net", "/tenants/T", "/Providers/X/Y"} {
+		lower := strings.ToLower(s)
+		folds := secretscan.IsAzureID(s)
+		if same := secretscan.HashID(key, s) == secretscan.HashID(key, lower); same != folds {
+			t.Errorf("HashID(%q) and HashID(%q) equal: %v, want %v", s, lower, same, folds)
+		}
+	}
+	if got := secretscan.HashID(nil, id); got != id {
+		t.Errorf("without a key the ID keeps its case: %s", got)
+	}
+}
+
+// With a hash key, a tag that holds the resource's ID in another case is
+// hashed, as the ID would be, and not left in the clear.
+func TestTagHoldingTheIDInAnotherCaseIsHashed(t *testing.T) {
+	t.Parallel()
+	key := []byte("0123456789abcdef-key")
+	const id = "/subscriptions/0000/resourceGroups/RG/providers/Microsoft.Network/virtualNetworks/VNet"
+	f := secretscan.NewTagFilter(nil, false, key)
+	tags := f.Tags(map[string]string{
+		"source": strings.ToLower(id),
+		"parent": "see " + strings.ToUpper(id),
+		"team":   "platform",
+	}, id, "VNet")
+	if got, want := tags["source"], secretscan.HashID(key, id); got != want {
+		t.Errorf("source = %q, want the ID's hash %s", got, want)
+	}
+	for k, v := range tags {
+		if strings.Contains(strings.ToLower(v), "/subscriptions/") {
+			t.Errorf("tag %s keeps the ID in the clear: %s", k, v)
+		}
+	}
+	if tags["team"] != "platform" {
+		t.Errorf("an unrelated tag changed: %v", tags)
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 )
 
 // KeyEnv is the environment variable that holds the key --hash-ids hashes
@@ -58,4 +59,27 @@ func Hash(key []byte, s string) string {
 	mac := hmac.New(sha256.New, key)
 	mac.Write([]byte(s))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// HashID is Hash for a resource ID: an Azure resource ID (see IsAzureID) is
+// lower-cased before it is hashed, as Azure treats its case as
+// insignificant and spells it differently from one source to the next, so
+// the same resource hashes the same. Other IDs are hashed as they are, and
+// without a key the ID is returned unchanged, in its own case.
+func HashID(key []byte, s string) string {
+	if key != nil && IsAzureID(s) {
+		s = strings.ToLower(s)
+	}
+	return Hash(key, s)
+}
+
+// IsAzureID reports whether s is an Azure resource ID: a path that starts,
+// in any case, with /subscriptions/, /providers/ or /tenants/.
+func IsAzureID(s string) bool {
+	for _, p := range [...]string{"/subscriptions/", "/providers/", "/tenants/"} {
+		if len(s) >= len(p) && strings.EqualFold(s[:len(p)], p) {
+			return true
+		}
+	}
+	return false
 }
