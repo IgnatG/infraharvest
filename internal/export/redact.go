@@ -4,6 +4,8 @@
 package export
 
 import (
+	"strings"
+
 	"github.com/IgnatG/infraharvest/pkg/secretscan"
 )
 
@@ -45,7 +47,24 @@ func (r *redactor) droppedKeys() []string {
 }
 
 // hash returns the HMAC-SHA256 of s with the key, in hexadecimal, or s
-// itself without a key (see secretscan.Hash).
+// itself without a key (see secretscan.Hash). An Azure resource ID is
+// lower-cased first, as Azure treats its case as insignificant and spells
+// it differently from one source to the next, so the hash joins; nothing
+// else is, and without a key the ID keeps its case.
 func (r *redactor) hash(s string) string {
+	if r.key != nil && isAzureID(s) {
+		s = strings.ToLower(s)
+	}
 	return secretscan.Hash(r.key, s)
+}
+
+// isAzureID reports whether s is an Azure resource ID: a path that starts,
+// in any case, with /subscriptions/, /providers/ or /tenants/.
+func isAzureID(s string) bool {
+	for _, p := range [...]string{"/subscriptions/", "/providers/", "/tenants/"} {
+		if len(s) >= len(p) && strings.EqualFold(s[:len(p)], p) {
+			return true
+		}
+	}
+	return false
 }
