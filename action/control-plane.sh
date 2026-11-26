@@ -335,6 +335,25 @@ read_limits() {
   max_plain_bytes=$plain
 }
 
+# warn_account_cap <session-response>: warns, never fails, when the session
+# answer's {"entitlements": {"import": {"cloud_accounts": {"limit": n,
+# "used": n}}}} says the organisation is at its cloud-account limit: limit a
+# whole number and used a whole number of at least that. An answer without the
+# field, with a null limit (no limit), or with anything else in it, such as one
+# from a control plane that doesn't report entitlements, gets no message.
+warn_account_cap() {
+  local cap
+  cap=$(jq -r '
+    def whole: type == "number" and . == floor and . >= 0 and . <= 1000000000;
+    (try .entitlements.import.cloud_accounts catch null) as $c
+    | if ($c | type) == "object" and ($c.limit | whole) and ($c.used | whole) and $c.used >= $c.limit
+      then "\($c.used) \($c.limit)" else empty end' "$1" 2> /dev/null) || cap=
+  if [[ "$cap" =~ ^([0-9]+)\ ([0-9]+)$ ]]; then
+    annotation warning "control plane: the organisation is at its cloud-account limit (${BASH_REMATCH[1]} of ${BASH_REMATCH[2]} used): new accounts will be refused at upload, while accounts already sent are still accepted"
+  fi
+  return 0
+}
+
 # open_session: trades the OIDC token for the control plane's run token: sets
 # run_token, masks it, and leaves the header file the uploads send it in.
 # The OIDC token goes to the session endpoint only.
@@ -349,6 +368,7 @@ open_session() {
   run_token=$(jq -r 'if type == "object" and (.token | type) == "string" then .token else empty end' "$tmp/session-response" 2> /dev/null) || run_token=
   expires=$(jq -r 'if type == "object" and (.expires_at | type) == "string" then .expires_at else empty end' "$tmp/session-response" 2> /dev/null | head -c 64 | tr -cd '[:graph:]') || expires=
   read_limits "$tmp/session-response"
+  warn_account_cap "$tmp/session-response"
   rm -f "$tmp/session-response" "$tmp/session-headers"
   if [[ ! "$run_token" =~ ^[[:graph:]]+$ ]]; then
     problem "the session answer at $base/api/v1/session has no usable token"

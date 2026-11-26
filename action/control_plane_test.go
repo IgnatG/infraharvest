@@ -85,6 +85,7 @@ type controlPlane struct {
 	rateLimitBody    string // when set, the whole body of a 429
 
 	sessionLimits string // when set, the "limits" of the session answer, as JSON
+	sessionExtra  string // when set, more members of the session answer, such as `"entitlements":{}`
 	plain         bool   // refuse with plain text, not JSON
 	audience      string
 }
@@ -154,6 +155,9 @@ func newControlPlane(t *testing.T) *controlPlane {
 			limits := ""
 			if cp.sessionLimits != "" {
 				limits = `,"limits":` + cp.sessionLimits
+			}
+			if cp.sessionExtra != "" {
+				limits += "," + cp.sessionExtra
 			}
 			fmt.Fprintf(w, `{"token":%q,"expires_at":"2026-11-18T10:15:00Z"%s}`, runToken, limits)
 		}
@@ -1818,6 +1822,80 @@ func TestUploadIgnoresMalformedLimitsOfTheSessionAnswer(t *testing.T) {
 			res = upload(t, cp, nil)
 			if res.err != nil || cp.count("/api/v1/ingest/ocsf-inventory") != 1 {
 				t.Errorf("an ordinary run failed: %v\n%s", res.err, res.output)
+			}
+		})
+	}
+}
+
+// An organisation at its cloud-account limit is told so, once, in a warning;
+// nothing else about the run changes.
+func TestUploadWarnsAtTheCloudAccountLimit(t *testing.T) {
+	const marker = "the organisation is at its cloud-account limit"
+	entitlement := func(account string) string {
+		return `"entitlements":{"import":{"cloud_accounts":` + account + `}}`
+	}
+	t.Run("at the limit", func(t *testing.T) {
+		for _, account := range []string{`{"limit":10,"used":10}`, `{"limit":1,"used":3}`, `{"limit":0,"used":0}`} {
+			cp := newControlPlane(t)
+			cp.sessionExtra = entitlement(account)
+			res := upload(t, cp, nil)
+			if res.err != nil || cp.count("/api/v1/ingest/ocsf-inventory") != 1 {
+				t.Errorf("%s: the run did not go on: %v\n%s", account, res.err, res.output)
+			}
+			if strings.Count(res.output, "::warning::control plane: "+marker) != 1 ||
+				!strings.Contains(res.output, "new accounts will be refused at upload, while accounts already sent are still accepted") {
+				t.Errorf("%s: no warning:\n%s", account, res.output)
+			}
+		}
+	})
+	t.Run("with the numbers in it", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.sessionExtra = entitlement(`{"limit":10,"used":12}`)
+		res := upload(t, cp, nil)
+		if !strings.Contains(res.output, marker+" (12 of 10 used)") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+	t.Run("with limits beside it", func(t *testing.T) {
+		cp := newControlPlane(t)
+		cp.sessionLimits = `{"max_body_bytes":500000,"max_decompressed_bytes":3000000}`
+		cp.sessionExtra = entitlement(`{"limit":2,"used":2}`)
+		res := upload(t, cp, nil)
+		if res.err != nil || !strings.Contains(res.output, marker) || !strings.Contains(res.output, "it takes a document of 500000 bytes gzipped") {
+			t.Errorf("%v\n%s", res.err, res.output)
+		}
+	})
+	for _, tt := range []struct{ name, extra string }{
+		{"under the limit", `"entitlements":{"import":{"cloud_accounts":{"limit":10,"used":9}}}`},
+		{"no limit", `"entitlements":{"import":{"cloud_accounts":{"limit":null,"used":400}}}`},
+		{"no field", `"entitlements":{"import":{}}`},
+		{"no entitlements", ``},
+		{"empty entitlements", `"entitlements":{}`},
+		{"entitlements null", `"entitlements":null`},
+		{"entitlements a string", `"entitlements":"unlimited"`},
+		{"entitlements an array", `"entitlements":[1,2]`},
+		{"import a string", `"entitlements":{"import":"yes"}`},
+		{"cloud_accounts null", `"entitlements":{"import":{"cloud_accounts":null}}`},
+		{"cloud_accounts a number", `"entitlements":{"import":{"cloud_accounts":5}}`},
+		{"cloud_accounts an array", `"entitlements":{"import":{"cloud_accounts":[10,10]}}`},
+		{"limit missing", `"entitlements":{"import":{"cloud_accounts":{"used":3}}}`},
+		{"used missing", `"entitlements":{"import":{"cloud_accounts":{"limit":3}}}`},
+		{"limit a string", `"entitlements":{"import":{"cloud_accounts":{"limit":"3","used":3}}}`},
+		{"used a string", `"entitlements":{"import":{"cloud_accounts":{"limit":3,"used":"3"}}}`},
+		{"limit true", `"entitlements":{"import":{"cloud_accounts":{"limit":true,"used":3}}}`},
+		{"limit negative", `"entitlements":{"import":{"cloud_accounts":{"limit":-1,"used":3}}}`},
+		{"fractional", `"entitlements":{"import":{"cloud_accounts":{"limit":2.5,"used":3}}}`},
+		{"used null", `"entitlements":{"import":{"cloud_accounts":{"limit":3,"used":null}}}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			cp := newControlPlane(t)
+			cp.sessionExtra = tt.extra
+			res := upload(t, cp, nil)
+			if res.err != nil || cp.count("/api/v1/ingest/ocsf-inventory") != 1 {
+				t.Errorf("the run did not go on: %v\n%s", res.err, res.output)
+			}
+			if strings.Contains(res.output, marker) || strings.Contains(res.output, "cloud-account") {
+				t.Errorf("warned:\n%s", res.output)
 			}
 		})
 	}
