@@ -110,6 +110,11 @@ kept_roots array of object omitempty
 kept_roots[].environments array of string
 kept_roots[].path string
 kept_roots[].scope string omitempty
+listings array of object omitempty
+listings[].complete boolean
+listings[].complete_types array of string omitempty
+listings[].filters array of string omitempty
+listings[].scope string
 merges array of object omitempty
 merges[].apart array of object omitempty
 merges[].apart[].env string

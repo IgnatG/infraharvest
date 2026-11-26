@@ -122,6 +122,7 @@ func listCall(ctx context.Context, run *Run, provider harvest.Provider, options 
 		return nil, err
 	}
 	run.recordCall(c, listed, resources, tools, placed, slices.Concat(listed.failures, childFailures))
+	run.report.AddListing(scopeListing(provider, c, listed.listed, listed.listFailures))
 	recorder := callRecorder{run: run, scope: c.scope, here: here}
 	if options.Roots == RootsIncremental {
 		// What an earlier import put in another root stays there.
