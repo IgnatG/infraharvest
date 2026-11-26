@@ -444,7 +444,7 @@ func buildInventory(r *report.Report, opts Options, runID string, now time.Time)
 			Status:      status,
 			StatusBasis: basis,
 			Region:      region,
-			Tags:        red.tags(e.tags, e.id, e.name),
+			Tags:        red.tags(e.tags, e.id, e.cloudID, e.name),
 		}
 		if e.name != "" && secret.CredentialFormat(e.name) == "" {
 			res.Name = red.hash(e.name)

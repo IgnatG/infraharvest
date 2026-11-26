@@ -16,6 +16,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine/gate"
 	"github.com/IgnatG/infraharvest/internal/importer"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/pkg/secretscan"
 )
 
 const scope = "aws/123456789012/eu-west-2"
@@ -224,7 +225,7 @@ func TestCredentialKeyNeverListed(t *testing.T) {
 		"drop-tag":  newRedactor([]string{credentialTag}, false, nil),
 		"drop-tags": newRedactor(nil, true, nil),
 	} {
-		kept := r.tags(tags, "", "")
+		kept := r.tags(tags, "", "", "")
 		if _, ok := kept[credentialTag]; ok {
 			t.Errorf("%s: kept the credential key", name)
 		}
@@ -281,7 +282,7 @@ func TestHashingTags(t *testing.T) {
 		"kubernetes.io/cluster/logs-bucket": "owned",
 		"env":                               "prod",
 		"tier":                              "a",
-	}, "logs-bucket", "logs")
+	}, "logs-bucket", "", "logs")
 	want := map[string]string{
 		"Name":  r.hash("web"),
 		"arn":   r.hash("arn:aws:s3:::logs-bucket"),
@@ -301,13 +302,13 @@ func TestHashingTags(t *testing.T) {
 		newRedactor(nil, true, []byte("0123456789abcdef-key")),
 		newRedactor([]string{"kubernetes.io/cluster/logs-bucket"}, false, []byte("0123456789abcdef-key")),
 	} {
-		dropped.tags(map[string]string{"kubernetes.io/cluster/logs-bucket": "owned", "env": "prod"}, "logs-bucket", "logs")
+		dropped.tags(map[string]string{"kubernetes.io/cluster/logs-bucket": "owned", "env": "prod"}, "logs-bucket", "", "logs")
 		if keys := dropped.droppedKeys(); slices.Contains(keys, "kubernetes.io/cluster/logs-bucket") {
 			t.Errorf("a key naming the resource was listed as dropped: %v", keys)
 		}
 	}
 	// Without --hash-ids, tags stay as they are.
-	plain := newRedactor(nil, false, nil).tags(map[string]string{"Name": "web", "alias": "logs"}, "logs-bucket", "logs")
+	plain := newRedactor(nil, false, nil).tags(map[string]string{"Name": "web", "alias": "logs"}, "logs-bucket", "", "logs")
 	if plain["Name"] != "web" || plain["alias"] != "logs" {
 		t.Errorf("tags changed without --hash-ids: %v", plain)
 	}
@@ -659,5 +660,37 @@ func TestHashLowerCasesAzureIDs(t *testing.T) {
 	plain := newRedactor(nil, false, nil)
 	if got := plain.hash(sub); got != sub {
 		t.Errorf("without a key, hash(%q) = %q", sub, got)
+	}
+}
+
+// With --hash-ids, a tag that holds the resource's cloud ID, such as its ARN
+// where the ID is something else, is hashed like the ID, and a tag whose key
+// holds it is dropped: neither gives the ARN away in the clear.
+func TestTagsHoldingTheCloudIDAreHashed(t *testing.T) {
+	key := []byte("0123456789abcdef-key")
+	const (
+		id  = "https://sqs.eu-west-1.amazonaws.com/111111111111/jobs-prod"
+		arn = "arn:aws:sqs:eu-west-1:111111111111:jobs-prod"
+	)
+	red := newRedactor(nil, false, key)
+	tags := red.tags(map[string]string{
+		"queue_arn":    arn,
+		"see":          "upstream " + strings.ToUpper(arn),
+		"owner/" + arn: "x",
+		"team":         "platform",
+	}, id, arn, "jobs_q")
+	if got, want := tags["queue_arn"], secretscan.HashID(key, arn); got != want {
+		t.Errorf("queue_arn = %q, want the ARN's hash %s", got, want)
+	}
+	for k, v := range tags {
+		if strings.Contains(strings.ToLower(k+"="+v), strings.ToLower(arn)) {
+			t.Errorf("tag %s=%s keeps the ARN in the clear", k, v)
+		}
+	}
+	if tags["team"] != "platform" {
+		t.Errorf("an unrelated tag changed: %v", tags)
+	}
+	if got := newRedactor(nil, false, nil).tags(map[string]string{"queue_arn": arn}, id, arn, "jobs_q"); got["queue_arn"] != arn {
+		t.Errorf("without a key the tag stays: %v", got)
 	}
 }

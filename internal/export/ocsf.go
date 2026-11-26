@@ -314,7 +314,7 @@ func buildOCSFInventory(r *report.Report, opts Options, listed []listedResource,
 			UID:    red.hash(e.id),
 			Region: region,
 			Labels: []string{"status:" + status, "status_basis:" + basis},
-			Tags:   ocsfTags(red.tags(e.tags, e.id, e.name)),
+			Tags:   ocsfTags(red.tags(e.tags, e.id, e.cloudID, e.name)),
 		}
 		if e.cloudID != "" {
 			res.UID, res.UIDAlt = red.hash(e.cloudID), red.hash(e.id)

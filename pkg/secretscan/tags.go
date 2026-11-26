@@ -44,13 +44,20 @@ func NewTagFilter(dropKeys []string, dropAll bool, hashKey []byte) *TagFilter {
 // Name tag, or one whose value is or holds the ID or the name in any case, such as
 // an ARN, has its value hashed (see HashID). It returns nil if no tag stays.
 func (f *TagFilter) Tags(tags map[string]string, id, name string) map[string]string {
+	return f.TagsFor(tags, name, id)
+}
+
+// TagsFor is Tags for a resource known by more than one ID, such as an ID
+// and an ARN: a tag that names any of ids is treated as one that names the
+// ID.
+func (f *TagFilter) TagsFor(tags map[string]string, name string, ids ...string) map[string]string {
 	var kept map[string]string
 	for k, v := range tags {
 		// A key that is itself a credential, or that names the resource
 		// whose ID and name are hashed (such as kubernetes.io/cluster/<name>),
 		// is dropped without being listed, however it came to be dropped:
 		// the list would show it.
-		names := f.key != nil && (namedIn(k, id) || namedIn(k, name))
+		names := f.key != nil && (namedIn(k, name) || namedInAny(k, ids))
 		listable := secretdetect.CredentialFormat(k) == "" && !names
 		switch {
 		case f.all, f.drop[k], LooksSecret(k, v):
@@ -65,7 +72,7 @@ func (f *TagFilter) Tags(tags map[string]string, id, name string) map[string]str
 			if kept == nil {
 				kept = map[string]string{}
 			}
-			if f.key != nil && hidesName(k, v, id, name) {
+			if f.key != nil && hidesName(k, v, ids, name) {
 				v = HashID(f.key, v)
 			}
 			kept[k] = v
@@ -94,14 +101,26 @@ const minNamed = 4
 // hidesName reports whether the tag k=v gives away the resource's ID or
 // name, which --hash-ids hashes: a Name tag, a value that is the ID or the
 // name, or a value that holds one of them, such as an ARN.
-func hidesName(k, v, id, name string) bool {
-	switch {
-	case strings.EqualFold(k, "name"):
-		return true
-	case v != "" && (strings.EqualFold(v, id) || strings.EqualFold(v, name)):
+func hidesName(k, v string, ids []string, name string) bool {
+	if strings.EqualFold(k, "name") || (v != "" && strings.EqualFold(v, name)) {
 		return true
 	}
-	return namedIn(v, id) || namedIn(v, name)
+	for _, id := range ids {
+		if v != "" && strings.EqualFold(v, id) {
+			return true
+		}
+	}
+	return namedIn(v, name) || namedInAny(v, ids)
+}
+
+// namedInAny reports whether s holds any of whats (see namedIn).
+func namedInAny(s string, whats []string) bool {
+	for _, w := range whats {
+		if namedIn(s, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // namedIn reports whether s holds what, in any case, if what is long enough
