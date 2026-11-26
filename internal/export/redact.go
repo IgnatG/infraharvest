@@ -32,10 +32,11 @@ func newRedactor(drop []string, all bool, key []byte) *redactor {
 	return &redactor{key: key, filter: secretscan.NewTagFilter(drop, all, key)}
 }
 
-// tags returns the tags of a resource whose ID and name are id and name
-// that stay in the export (see secretscan.TagFilter.Tags).
-func (r *redactor) tags(tags map[string]string, id, name string) map[string]string {
-	return r.filter.Tags(tags, id, name)
+// tags returns the tags of a resource that stay in the export: one whose ID,
+// cloud ID (such as an ARN, or "") and name are id, cloudID and name. A tag
+// that holds either ID is treated alike (see secretscan.TagFilter.TagsFor).
+func (r *redactor) tags(tags map[string]string, id, cloudID, name string) map[string]string {
+	return r.filter.TagsFor(tags, name, id, cloudID)
 }
 
 // droppedKeys returns the keys it dropped, sorted. They are non-nil, as

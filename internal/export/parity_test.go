@@ -13,7 +13,7 @@ import (
 type redacting struct{ r *redactor }
 
 func (x redacting) Tags(tags map[string]string, id, name string) map[string]string {
-	return x.r.tags(tags, id, name)
+	return x.r.tags(tags, id, "", name)
 }
 func (x redacting) Dropped() []string    { return x.r.droppedKeys() }
 func (x redacting) Hash(s string) string { return x.r.hash(s) }
