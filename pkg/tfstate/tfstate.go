@@ -14,8 +14,19 @@
 // outputs, and the places its terraform_remote_state data sources read
 // other states from. State holds secrets, so the reader keeps nothing
 // else: the values of attributes and of outputs are dropped while the
-// state is decoded, and only the ID and ARN of each instance, and the
-// location a remote state is read from (never its credentials), are kept.
+// state is decoded, and only the ID and ARN of each instance, its tags,
+// and the location a remote state is read from (never its credentials),
+// are kept.
+//
+// The tags are those of the tags and tags_all attributes (AWS and Azure;
+// tags_all, which is tags plus the provider's default_tags, wins on a key
+// the two share) and of the labels attribute (Google Cloud), into
+// Instance.Tags. Only string values are kept; anything else is skipped
+// without an error. The package does not redact them: a tag value can be
+// a secret, so a caller that stores or shows tags filters them itself,
+// for instance with the credential detectors and the tag filter of
+// pkg/secretscan.
+//
 // A state is decoded as it is read, one resource at a time, so that a
 // large one doesn't take its size in memory.
 //

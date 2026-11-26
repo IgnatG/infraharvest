@@ -16,8 +16,8 @@ import (
 )
 
 // Document is what one state holds that tools which read infrastructure
-// need. It holds no attribute values and no output values, which state
-// keeps in the open and which are most often secrets.
+// need. It holds no attribute values besides tags and no output values,
+// which state keeps in the open and which are most often secrets.
 type Document struct {
 	// Source is where the state was found: the path of a file, or the
 	// location of an object, such as s3://bucket/key or tfc://org/workspace.
@@ -70,6 +70,12 @@ type Instance struct {
 	// account_id=123456789012,name=logs,region=eu-west-2; "" where it has
 	// none.
 	IdentityID string
+	// Tags are the instance's tags, or labels on Google Cloud, read from the
+	// state's tags, tags_all and labels attributes (see the package
+	// documentation); only string values are kept, and it is nil where the
+	// instance has none. The values are as the state has them, secret-looking
+	// ones included.
+	Tags map[string]string `json:",omitempty"`
 	// Dependencies are the addresses of the resources the instance
 	// depends on, without their instance keys, as the state records them.
 	Dependencies []string
@@ -170,6 +176,26 @@ func (s *lenientStrings) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// lenientStringMap reads an object of strings, such as a resource's tags:
+// a value that is not a string is left out, and a value that is not an
+// object leaves the map nil.
+type lenientStringMap map[string]string
+
+func (m *lenientStringMap) UnmarshalJSON(b []byte) error {
+	var items map[string]any
+	if json.Unmarshal(b, &items) == nil {
+		for k, item := range items {
+			if v, ok := item.(string); ok {
+				if *m == nil {
+					*m = lenientStringMap{}
+				}
+				(*m)[k] = v
+			}
+		}
+	}
+	return nil
+}
+
 type lenientInt int64
 
 func (n *lenientInt) UnmarshalJSON(b []byte) error {
@@ -212,9 +238,13 @@ type stateInstance struct {
 		// own, and kept raw: another resource's attribute of the same name
 		// may be of any type. Its outputs, which hold values, are not
 		// read at all.
-		Backend   json.RawMessage `json:"backend"`
-		Config    json.RawMessage `json:"config"`
-		Workspace json.RawMessage `json:"workspace"`
+		// Tags, TagsAll and Labels are the resource's tags and labels.
+		Tags      lenientStringMap `json:"tags"`
+		TagsAll   lenientStringMap `json:"tags_all"`
+		Labels    lenientStringMap `json:"labels"`
+		Backend   json.RawMessage  `json:"backend"`
+		Config    json.RawMessage  `json:"config"`
+		Workspace json.RawMessage  `json:"workspace"`
 	} `json:"attributes"`
 }
 
@@ -380,6 +410,7 @@ func addResource(doc *Document, res stateResource) {
 		if inst.ID == "" {
 			inst.ID = inst.ARN
 		}
+		inst.Tags = mergeTags(i.Attributes.Labels, i.Attributes.Tags, i.Attributes.TagsAll)
 		// What Terraform's list resources return is listed by its
 		// identity's ID, which the state of a resource has from
 		// Terraform 1.12 on, whatever it was imported by.
@@ -391,6 +422,21 @@ func addResource(doc *Document, res stateResource) {
 			doc.RemoteStates = append(doc.RemoteStates, remoteState(inst.Address, i))
 		}
 	}
+}
+
+// mergeTags merges the maps in order, a later one winning on a key they
+// share, and returns nil where none holds a tag.
+func mergeTags(maps ...lenientStringMap) map[string]string {
+	var tags map[string]string
+	for _, m := range maps {
+		for k, v := range m {
+			if tags == nil {
+				tags = map[string]string{}
+			}
+			tags[k] = v
+		}
+	}
+	return tags
 }
 
 // remoteState returns where the terraform_remote_state data source at

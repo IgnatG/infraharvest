@@ -501,3 +501,45 @@ func TestWithoutURL(t *testing.T) {
 		t.Errorf("got %v", got)
 	}
 }
+
+// An instance's tags are read from the tags, tags_all and labels attributes,
+// leniently, and no other attribute value is kept.
+func TestParseTags(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name       string
+		attributes string
+		want       map[string]string
+	}{
+		{"aws tags merged with tags_all, which wins", `{"id": "i-1", "tags": {"Name": "web", "Env": "dev"}, "tags_all": {"Env": "prod", "Owner": "ops"}}`,
+			map[string]string{"Name": "web", "Env": "prod", "Owner": "ops"}},
+		{"aws tags_all alone", `{"id": "i-1", "tags_all": {"Owner": "ops"}}`, map[string]string{"Owner": "ops"}},
+		{"azure tags", `{"id": "/subscriptions/s/rg/r", "tags": {"cost-centre": "42"}}`, map[string]string{"cost-centre": "42"}},
+		{"gcp labels", `{"id": "projects/p/buckets/b", "labels": {"team": "data", "env": "stg"}}`, map[string]string{"team": "data", "env": "stg"}},
+		{"a non-string value is skipped", `{"id": "i-1", "tags": {"Name": "web", "count": 3, "on": true, "nested": {"a": "b"}, "list": ["x"], "nil": null}}`,
+			map[string]string{"Name": "web"}},
+		{"a tags attribute that is not an object", `{"id": "i-1", "tags": "oops", "tags_all": ["x"], "labels": 7}`, nil},
+		{"null tags", `{"id": "i-1", "tags": null, "tags_all": null}`, nil},
+		{"empty tags", `{"id": "i-1", "tags": {}}`, nil},
+		{"no tags attribute", `{"id": "i-1", "cidr_block": "10.0.0.0/16"}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			state := `{"version": 4, "resources": [{"mode": "managed", "type": "t", "name": "n", "instances": [{"attributes": ` + tt.attributes + `}]}]}`
+			doc, err := Parse([]byte(state), "w")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(doc.Instances) != 1 {
+				t.Fatalf("instances: %+v", doc.Instances)
+			}
+			if got := doc.Instances[0].Tags; !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("tags: got %#v, want %#v", got, tt.want)
+			}
+			if doc.Instances[0].ID == "" {
+				t.Error("the ID is lost")
+			}
+		})
+	}
+}
