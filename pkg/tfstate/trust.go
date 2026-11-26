@@ -40,9 +40,21 @@ type TrustPrincipal struct {
 	Type, Value string
 }
 
+// Caps on what is read from one trust policy. Real policies are a few KB (IAM
+// allows 2048 characters by default, 4096 on request), so a policy over a cap
+// is read as unreadable and nothing of it is kept.
+const (
+	maxTrustText       = 64 << 10
+	maxTrustStatements = 100
+	maxTrustPrincipals = 500
+)
+
 // trustStatements reads the trust policy in document. It returns false where
-// the document is not a policy this reader understands.
+// the document is not a policy this reader understands, or is over a cap.
 func trustStatements(document string) ([]TrustStatement, bool) {
+	if len(document) > maxTrustText {
+		return nil, false
+	}
 	var p struct {
 		Statement json.RawMessage `json:"Statement"`
 	}
@@ -54,6 +66,9 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 		if err := json.Unmarshal(p.Statement, &raw); err != nil {
 			return nil, false
 		}
+	}
+	if len(raw) > maxTrustStatements {
+		return nil, false
 	}
 	var out []TrustStatement
 	for _, r := range raw {
@@ -73,7 +88,11 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 		case len(s.NotAction) > 0 && string(s.NotAction) != "null":
 			st.Assumes, st.Conditional = true, true
 		default:
-			for _, a := range stringList(s.Action) {
+			actions, ok := stringList(s.Action)
+			if !ok {
+				return nil, false
+			}
+			for _, a := range actions {
 				if ok, _ := path.Match(strings.ToLower(a), "sts:assumerole"); ok {
 					st.Assumes = true
 				}
@@ -83,7 +102,10 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 		if len(s.NotPrincipal) > 0 && string(s.NotPrincipal) != "null" {
 			pr, st.NotPrincipal = s.NotPrincipal, true
 		}
-		st.Principals = trustPrincipals(pr)
+		var ok bool
+		if st.Principals, ok = trustPrincipals(pr); !ok {
+			return nil, false
+		}
 		if c := strings.TrimSpace(string(s.Condition)); c != "" && c != "null" && c != "{}" {
 			st.Conditional = true
 		}
@@ -93,45 +115,67 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 }
 
 // trustPrincipals reads a Principal: "*", or an object of string or list
-// values by type.
-func trustPrincipals(raw json.RawMessage) []TrustPrincipal {
-	if len(raw) == 0 {
-		return nil
+// values by type. It returns false for a principal that is not one of those,
+// that has a value of another type, or that names more than maxTrustPrincipals.
+func trustPrincipals(raw json.RawMessage) ([]TrustPrincipal, bool) {
+	if absent(raw) {
+		return nil, true
 	}
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
-		return []TrustPrincipal{{Type: "*", Value: s}}
+		return []TrustPrincipal{{Type: "*", Value: s}}, true
 	}
 	var m map[string]json.RawMessage
 	if json.Unmarshal(raw, &m) != nil {
-		return nil
+		return nil, false
 	}
 	var out []TrustPrincipal
 	for _, t := range []string{"AWS", "Service", "Federated", "CanonicalUser"} {
-		for _, v := range stringList(m[t]) {
+		vs, ok := stringList(m[t])
+		if !ok || len(out)+len(vs) > maxTrustPrincipals {
+			return nil, false
+		}
+		for _, v := range vs {
 			out = append(out, TrustPrincipal{Type: t, Value: v})
 		}
 	}
-	return out
+	return out, true
 }
 
-// stringList reads a string or a list of strings; anything else is empty.
-func stringList(raw json.RawMessage) []string {
+// absent is true for a missing or null value.
+func absent(raw json.RawMessage) bool {
+	return len(raw) == 0 || string(raw) == "null"
+}
+
+// stringList reads a string or a list of strings. A missing or null value is
+// an empty list; the second result is false for any other value, such as a
+// list with a non-string in it.
+func stringList(raw json.RawMessage) ([]string, bool) {
+	if absent(raw) {
+		return nil, true
+	}
 	var s string
-	if json.Unmarshal(raw, &s) == nil && s != "" {
-		return []string{s}
+	if json.Unmarshal(raw, &s) == nil {
+		if s == "" {
+			return nil, true
+		}
+		return []string{s}, true
 	}
 	var l []string
 	if json.Unmarshal(raw, &l) == nil {
-		return l
+		return l, true
 	}
-	return nil
+	return nil, false
 }
 
 // roleTrust reads the assume_role_policy attribute of a role: a JSON string.
 func roleTrust(raw json.RawMessage) (statements []TrustStatement, unreadable bool) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, false
+	}
+	// A string of maxTrustText characters is at most six times that escaped.
+	if len(raw) > 6*maxTrustText+2 {
+		return nil, true
 	}
 	var doc string
 	if json.Unmarshal(raw, &doc) != nil || strings.TrimSpace(doc) == "" {

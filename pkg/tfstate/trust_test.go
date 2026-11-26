@@ -75,3 +75,50 @@ func TestParseRoleTrustUnreadable(t *testing.T) {
 		t.Errorf("trust = %+v", got)
 	}
 }
+
+// A policy over a size cap is unreadable and nothing of it is kept.
+func TestParseRoleTrustCaps(t *testing.T) {
+	t.Parallel()
+	stmt := `{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":"111111111111"}}`
+	tests := map[string]struct {
+		policy     string
+		unreadable bool
+	}{
+		"statements at the cap":        {`{"Statement":[` + strings.TrimSuffix(strings.Repeat(stmt+",", maxTrustStatements), ",") + `]}`, false},
+		"statements over the cap":      {`{"Statement":[` + strings.TrimSuffix(strings.Repeat(stmt+",", maxTrustStatements+1), ",") + `]}`, true},
+		"principals at the cap":        {`{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":[` + strings.TrimSuffix(strings.Repeat(`"a",`, maxTrustPrincipals), ",") + `]}}]}`, false},
+		"principals over the cap":      {`{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":[` + strings.TrimSuffix(strings.Repeat(`"a",`, maxTrustPrincipals+1), ",") + `]}}]}`, true},
+		"principals over across types": {`{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":[` + strings.TrimSuffix(strings.Repeat(`"a",`, maxTrustPrincipals), ",") + `],"Service":"x"}}]}`, true},
+		"text over the cap":            {`{"Statement":[` + stmt + `],"Pad":"` + strings.Repeat("x", maxTrustText) + `"}`, true},
+	}
+	for name, tc := range tests {
+		doc, err := Parse(roleState(t, tc.policy), "s")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		in := doc.Instances[0]
+		if in.TrustUnreadable != tc.unreadable || (tc.unreadable && in.Trust != nil) || (!tc.unreadable && in.Trust == nil) {
+			t.Errorf("%s: unreadable=%v, %d statements", name, in.TrustUnreadable, len(in.Trust))
+		}
+	}
+}
+
+// A value that is neither a string nor a list of strings makes the policy
+// unreadable, rather than being dropped from it.
+func TestParseRoleTrustMixedTypes(t *testing.T) {
+	t.Parallel()
+	for name, policy := range map[string]string{
+		"mixed principal list": `{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":["arn:aws:iam::222222222222:root",5]}}]}`,
+		"number principal":     `{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"AWS":5}}]}`,
+		"mixed action list":    `{"Statement":[{"Effect":"Allow","Action":["sts:AssumeRole",5],"Principal":{"AWS":"111111111111"}}]}`,
+		"principal is a list":  `{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":["111111111111"]}]}`,
+	} {
+		doc, err := Parse(roleState(t, policy), "s")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if in := doc.Instances[0]; !in.TrustUnreadable || in.Trust != nil {
+			t.Errorf("%s: %+v", name, in)
+		}
+	}
+}

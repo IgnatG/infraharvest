@@ -82,7 +82,12 @@ type Instance struct {
 	// Trust is the trust policy of an aws_iam_role, as statements (see
 	// TrustStatement); nil for any other resource and for a role whose state
 	// has none. TrustUnreadable is true where the state has a trust policy
-	// this reader could not read; the policy's text is never kept.
+	// this reader could not read, or one over a size cap (see trust.go); the
+	// policy's text is never kept.
+	//
+	// The statements name principals (ARNs, account IDs, service names), so a
+	// consumer that marshals a Document passes those on: treat them like the
+	// IDs and ARNs the Document already holds, not as free of identifiers.
 	Trust           []TrustStatement `json:",omitempty"`
 	TrustUnreadable bool             `json:",omitempty"`
 }
