@@ -45,7 +45,8 @@ func (r *redactor) droppedKeys() []string {
 }
 
 // hash returns the HMAC-SHA256 of s with the key, in hexadecimal, or s
-// itself without a key (see secretscan.Hash).
+// itself without a key, with an Azure resource ID lower-cased first (see
+// secretscan.HashID).
 func (r *redactor) hash(s string) string {
-	return secretscan.Hash(r.key, s)
+	return secretscan.HashID(r.key, s)
 }

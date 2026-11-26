@@ -41,8 +41,8 @@ func NewTagFilter(dropKeys []string, dropAll bool, hashKey []byte) *TagFilter {
 // it was told to drop and those that look like they hold a secret, by key
 // or value. With a hash key, a tag doesn't give away what the ID and name
 // are hashed to hide: a tag whose key names the resource is dropped, and a
-// Name tag, or one whose value is or holds the ID or the name, such as an
-// ARN, has its value hashed. It returns nil if no tag stays.
+// Name tag, or one whose value is or holds the ID or the name in any case, such as
+// an ARN, has its value hashed (see HashID). It returns nil if no tag stays.
 func (f *TagFilter) Tags(tags map[string]string, id, name string) map[string]string {
 	var kept map[string]string
 	for k, v := range tags {
@@ -66,7 +66,7 @@ func (f *TagFilter) Tags(tags map[string]string, id, name string) map[string]str
 				kept = map[string]string{}
 			}
 			if f.key != nil && hidesName(k, v, id, name) {
-				v = Hash(f.key, v)
+				v = HashID(f.key, v)
 			}
 			kept[k] = v
 		}
@@ -98,14 +98,15 @@ func hidesName(k, v, id, name string) bool {
 	switch {
 	case strings.EqualFold(k, "name"):
 		return true
-	case v != "" && (v == id || v == name):
+	case v != "" && (strings.EqualFold(v, id) || strings.EqualFold(v, name)):
 		return true
 	}
 	return namedIn(v, id) || namedIn(v, name)
 }
 
-// namedIn reports whether s holds what, if what is long enough to give it
-// away (see minNamed).
+// namedIn reports whether s holds what, in any case, if what is long enough
+// to give it away (see minNamed). Case is ignored because an Azure ID is the
+// same ID in any case, and a tag may spell it differently from the resource.
 func namedIn(s, what string) bool {
-	return len(what) >= minNamed && strings.Contains(s, what)
+	return len(what) >= minNamed && strings.Contains(strings.ToLower(s), strings.ToLower(what))
 }

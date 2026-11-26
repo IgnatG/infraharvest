@@ -623,3 +623,41 @@ func TestParseTime(t *testing.T) {
 		}
 	}
 }
+
+// With --hash-ids, an Azure resource ID is hashed lower-cased, as Azure
+// ignores its case, while other clouds' IDs keep theirs. Without a key
+// nothing changes.
+func TestHashLowerCasesAzureIDs(t *testing.T) {
+	t.Parallel()
+	r := newRedactor(nil, false, []byte("0123456789abcdef-key"))
+	const sub = "/subscriptions/0000-1111/resourceGroups/Rg-App/providers/Microsoft.Storage/storageAccounts/StAcct"
+	for _, id := range []string{
+		sub,
+		"/SUBSCRIPTIONS/0000-1111/RESOURCEGROUPS/RG-APP/PROVIDERS/MICROSOFT.STORAGE/STORAGEACCOUNTS/STACCT",
+		"/subscriptions/0000-1111/resourcegroups/rg-app/providers/microsoft.storage/storageaccounts/stacct",
+		"/Providers/Microsoft.Authorization/roleDefinitions/ABC",
+		"/Tenants/T1/x",
+	} {
+		if got, want := r.hash(id), r.hash(strings.ToLower(id)); got != want {
+			t.Errorf("hash(%q) = %s, want the lower-case ID's %s", id, got, want)
+		}
+	}
+	if r.hash(sub) == sub || r.hash(sub) != r.hash(strings.ToLower(sub)) {
+		t.Errorf("mixed-case Azure ID hashes differently from its lower-case form")
+	}
+	// An ARN, a GCP ID and a name are not Azure IDs: case counts.
+	for _, pair := range [][2]string{
+		{"arn:aws:s3:::Logs-Bucket", "arn:aws:s3:::logs-bucket"},
+		{"projects/P1/zones/Z/instances/I", "projects/p1/zones/z/instances/i"},
+		{"Web", "web"},
+	} {
+		if r.hash(pair[0]) == r.hash(pair[1]) {
+			t.Errorf("hash(%q) = hash(%q), want different", pair[0], pair[1])
+		}
+	}
+	// Without a key the ID is unchanged, in its own case.
+	plain := newRedactor(nil, false, nil)
+	if got := plain.hash(sub); got != sub {
+		t.Errorf("without a key, hash(%q) = %q", sub, got)
+	}
+}
