@@ -33,7 +33,7 @@ func (r *Report) AddListed(l Listed) {
 
 // Merge adds what other, the report of another part of the same import
 // (such as one account of several), recorded before Finish: its
-// directories, exclusions, failures and discovered counts by scope, and its
+// directories, exclusions, failures, discovered counts and listings by scope, and its
 // manifest if r has none yet. Finish then counts the whole.
 func (r *Report) Merge(other *Report) {
 	r.Add(other.Manifest)
@@ -56,6 +56,9 @@ func (r *Report) Merge(other *Report) {
 	}
 	for _, s := range other.Scopes {
 		r.AddDiscovered(s.Scope, s.Discovered)
+	}
+	for _, l := range other.Listings {
+		r.AddListing(l)
 	}
 }
 
@@ -123,6 +126,7 @@ func (r *Report) sortEntries() {
 	r.Warnings = slices.Compact(r.Warnings)
 	r.KeptRoots = mergeKeptRoots(r.KeptRoots)
 	r.listFindings()
+	sort.Slice(r.Listings, func(i, j int) bool { return r.Listings[i].Scope < r.Listings[j].Scope })
 	sort.Slice(r.Merges, func(i, j int) bool { return r.Merges[i].Path < r.Merges[j].Path })
 }
 

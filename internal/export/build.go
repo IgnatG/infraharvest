@@ -411,8 +411,10 @@ func buildInventory(r *report.Report, opts Options, runID string, now time.Time)
 		Resources:   []resource{},
 		Coverage:    coverage{Totals: toCounts(r.Totals), Types: []typeCounts{}, Scopes: []scopeCounts{}},
 	}
+	completeness := newCompleteness(r.Listings)
+	doc.Filters = completeness.filters()
 	for _, t := range r.Types {
-		doc.Coverage.Types = append(doc.Coverage.Types, typeCounts{Type: t.Type, Counts: toCounts(t.CoverageTotal)})
+		doc.Coverage.Types = append(doc.Coverage.Types, typeCounts{Type: t.Type, Counts: toCounts(t.CoverageTotal), Complete: completeness.ofType(t.Type)})
 	}
 	// scopes holds doc.Scopes, so that each resource's scope is looked up
 	// in a set rather than searched for.
@@ -421,7 +423,7 @@ func buildInventory(r *report.Report, opts Options, runID string, now time.Time)
 		if s.Scope != "" {
 			scopes[s.Scope] = true
 			doc.Scopes = append(doc.Scopes, s.Scope)
-			doc.Coverage.Scopes = append(doc.Coverage.Scopes, scopeCounts{Scope: s.Scope, Counts: toCounts(s.CoverageTotal)})
+			doc.Coverage.Scopes = append(doc.Coverage.Scopes, completeness.scopeCounts(s.Scope, toCounts(s.CoverageTotal)))
 		}
 	}
 	for _, e := range entries(r, listed) {

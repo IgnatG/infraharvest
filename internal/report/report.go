@@ -192,6 +192,8 @@ type Coverage struct {
 	// Scopes count by provider, account and region (see AddDiscovered),
 	// such as aws/123456789012/eu-west-2.
 	Scopes []ScopeCount `json:"scopes,omitempty"`
+	// Listings say how whole the listing of each scope was (see Listing).
+	Listings []Listing `json:"listings,omitempty"`
 	// Tags count by the value of each of the tag keys asked for (see
 	// Report.CountByTags), "" for resources without the tag.
 	Tags []TagCount `json:"tags,omitempty"`

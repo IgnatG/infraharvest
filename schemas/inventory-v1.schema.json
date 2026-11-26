@@ -15,6 +15,7 @@
     "scopes": {"type": "array", "items": {"type": "string", "minLength": 1}},
     "resources": {"type": "array", "items": {"$ref": "#/$defs/resource"}},
     "redaction": {"$ref": "#/$defs/redaction"},
+    "filters": {"$ref": "#/$defs/filters"},
     "coverage": {"$ref": "#/$defs/coverage"}
   },
   "$defs": {
@@ -56,6 +57,20 @@
         "hash_alg": {"const": "hmac-sha256"}
       }
     },
+    "filters": {
+      "description": "The kinds of filter that narrowed the listing of some scope: --id, --tag and --where, --services naming services instead of *, or --skip, a provider scope that lists one group (--resource-group) and one that lists in part (--resource-explorer). Kinds only, never what a filter matches. Absent when the report doesn't say how the resources were listed.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tag", "where", "services", "group", "partial"],
+      "properties": {
+        "id": {"type": "boolean"},
+        "tag": {"type": "boolean"},
+        "where": {"type": "boolean"},
+        "services": {"type": "boolean"},
+        "group": {"type": "boolean"},
+        "partial": {"type": "boolean"}
+      }
+    },
     "count": {"type": "integer", "minimum": 0},
     "counts": {
       "type": "object",
@@ -85,7 +100,11 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["type", "counts"],
-            "properties": {"type": {"type": "string", "minLength": 1}, "counts": {"$ref": "#/$defs/counts"}}
+            "properties": {
+              "type": {"type": "string", "minLength": 1},
+              "counts": {"$ref": "#/$defs/counts"},
+              "complete": {"description": "True only when the import listed every resource of the type in every scope it listed: no filter, service left out, failed service or listing in part touched it. Absent means not known to be.", "type": "boolean"}
+            }
           }
         },
         "scopes": {
@@ -94,7 +113,12 @@
             "type": "object",
             "additionalProperties": false,
             "required": ["scope", "counts"],
-            "properties": {"scope": {"type": "string", "minLength": 1}, "counts": {"$ref": "#/$defs/counts"}}
+            "properties": {
+              "scope": {"type": "string", "minLength": 1},
+              "counts": {"$ref": "#/$defs/counts"},
+              "complete": {"description": "True only when nothing narrowed the scope's listing: no filter, no failed service, no listing in part, and not read from an inventory discover saved. Absent means not known to be.", "type": "boolean"},
+              "complete_types": {"description": "The types the import listed every resource of in the scope, those it found none of too. A type not named may have resources the listing didn't find.", "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+            }
           }
         }
       }

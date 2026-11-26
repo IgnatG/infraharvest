@@ -62,14 +62,37 @@ type counts struct {
 	Cloud      int `json:"cloud"`
 }
 
+// typeCounts are the counts of one type. Complete says whether the import
+// listed every resource of the type, in every scope it listed: false when a
+// filter, a service left out, a failed service or a listing in part touched
+// it, and absent when the report doesn't say how whole its listing was.
 type typeCounts struct {
-	Type   string `json:"type"`
-	Counts counts `json:"counts"`
+	Type     string `json:"type"`
+	Counts   counts `json:"counts"`
+	Complete *bool  `json:"complete,omitempty"`
 }
 
+// scopeCounts are the counts of one scope. Complete says whether nothing
+// narrowed its listing (see filters), and CompleteTypes names the types the
+// import listed every resource of there, even those it found none of: a
+// type that isn't named may have resources the listing didn't find.
 type scopeCounts struct {
-	Scope  string `json:"scope"`
-	Counts counts `json:"counts"`
+	Scope         string   `json:"scope"`
+	Counts        counts   `json:"counts"`
+	Complete      *bool    `json:"complete,omitempty"`
+	CompleteTypes []string `json:"complete_types,omitempty"`
+}
+
+// filters says which kinds of filter narrowed the listing of some scope of
+// the import: only the kinds, never what a filter matches (see
+// report.FilterKinds).
+type filters struct {
+	ID       bool `json:"id"`
+	Tag      bool `json:"tag"`
+	Where    bool `json:"where"`
+	Services bool `json:"services"`
+	Group    bool `json:"group"`
+	Partial  bool `json:"partial"`
 }
 
 type coverage struct {
@@ -106,7 +129,10 @@ type inventoryDoc struct {
 	Scopes      []string   `json:"scopes"`
 	Resources   []resource `json:"resources"`
 	Redaction   redaction  `json:"redaction"`
-	Coverage    coverage   `json:"coverage"`
+	// Filters is absent when the report doesn't say how the resources were
+	// listed, as one an earlier release wrote doesn't.
+	Filters  *filters `json:"filters,omitempty"`
+	Coverage coverage `json:"coverage"`
 }
 
 // The commands whose runs the run document describes. import and incremental
