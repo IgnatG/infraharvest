@@ -107,7 +107,7 @@ jobs:
     # A cache of its own: the shared one is saved by whichever job
     # finishes first on main, often one that builds far less than this.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -212,7 +212,7 @@ jobs:
       run: .github/scripts/free-disk-space.sh start
     # -race builds objects no other job shares: a cache of their own.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -270,7 +270,7 @@ jobs:
     # Restore only, from main: a Windows cache is about 900 MB, and pull
     # requests saving one each filled the repository's cache.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -309,7 +309,7 @@ jobs:
       with:
         persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -344,7 +344,7 @@ jobs:
     # Builds the binary go test's job builds: restore its cache, which that
     # job saves.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -382,7 +382,7 @@ jobs:
       with:
         persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: true
@@ -435,7 +435,7 @@ jobs:
       with:
         persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: true
@@ -541,7 +541,7 @@ jobs:
     # A cache of this cloud's e2e build alone: with the shared one, the
     # test step spent minutes compiling and downloading modules first.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -675,7 +675,7 @@ jobs:
     # A cache of this cloud's e2e build alone: with the shared one, the
     # test step spent minutes compiling and downloading modules first.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -778,7 +778,7 @@ jobs:
     # A cache of this cloud's e2e build alone: with the shared one, the
     # test step spent minutes compiling and downloading modules first.
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
@@ -924,7 +924,7 @@ jobs:
       with:
         persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: true
@@ -963,7 +963,7 @@ jobs:
       with:
         persist-credentials: false
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: true
@@ -1030,7 +1030,7 @@ jobs:
     - name: Free disk space
       run: .github/scripts/free-disk-space.sh start
     - name: Install Go
-      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
       with:
         go-version-file: go.mod
         cache: false
