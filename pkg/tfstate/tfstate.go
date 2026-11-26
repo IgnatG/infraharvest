@@ -15,8 +15,10 @@
 // other states from. State holds secrets, so the reader keeps nothing
 // else: the values of attributes and of outputs are dropped while the
 // state is decoded, and only the ID and ARN of each instance, its tags,
-// and the location a remote state is read from (never its credentials),
-// are kept.
+// the location a remote state is read from (never its credentials) and,
+// for an aws_iam_role, who its trust policy names (see TrustStatement:
+// principals, effect, whether a condition is there; never the policy's text
+// or its conditions) are kept.
 //
 // The tags are those of the tags and tags_all attributes (AWS and Azure;
 // tags_all, which is tags plus the provider's default_tags, wins on a key

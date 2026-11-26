@@ -79,6 +79,12 @@ type Instance struct {
 	// Dependencies are the addresses of the resources the instance
 	// depends on, without their instance keys, as the state records them.
 	Dependencies []string
+	// Trust is the trust policy of an aws_iam_role, as statements (see
+	// TrustStatement); nil for any other resource and for a role whose state
+	// has none. TrustUnreadable is true where the state has a trust policy
+	// this reader could not read; the policy's text is never kept.
+	Trust           []TrustStatement `json:",omitempty"`
+	TrustUnreadable bool             `json:",omitempty"`
 }
 
 // Output is an output of the root module: its name, and whether
@@ -239,12 +245,15 @@ type stateInstance struct {
 		// may be of any type. Its outputs, which hold values, are not
 		// read at all.
 		// Tags, TagsAll and Labels are the resource's tags and labels.
-		Tags      lenientStringMap `json:"tags"`
-		TagsAll   lenientStringMap `json:"tags_all"`
-		Labels    lenientStringMap `json:"labels"`
-		Backend   json.RawMessage  `json:"backend"`
-		Config    json.RawMessage  `json:"config"`
-		Workspace json.RawMessage  `json:"workspace"`
+		// AssumeRolePolicy is an aws_iam_role's trust policy, a JSON string,
+		// read only for that type (see TrustStatement).
+		AssumeRolePolicy json.RawMessage  `json:"assume_role_policy"`
+		Tags             lenientStringMap `json:"tags"`
+		TagsAll          lenientStringMap `json:"tags_all"`
+		Labels           lenientStringMap `json:"labels"`
+		Backend          json.RawMessage  `json:"backend"`
+		Config           json.RawMessage  `json:"config"`
+		Workspace        json.RawMessage  `json:"workspace"`
 	} `json:"attributes"`
 }
 
@@ -411,6 +420,9 @@ func addResource(doc *Document, res stateResource) {
 			inst.ID = inst.ARN
 		}
 		inst.Tags = mergeTags(i.Attributes.Labels, i.Attributes.Tags, i.Attributes.TagsAll)
+		if res.Mode == "managed" && res.Type == "aws_iam_role" {
+			inst.Trust, inst.TrustUnreadable = roleTrust(i.Attributes.AssumeRolePolicy)
+		}
 		// What Terraform's list resources return is listed by its
 		// identity's ID, which the state of a resource has from
 		// Terraform 1.12 on, whatever it was imported by.
