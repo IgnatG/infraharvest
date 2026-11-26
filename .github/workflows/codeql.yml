@@ -56,6 +56,11 @@ jobs:
       - name: Build
         if: matrix.build-mode == 'autobuild'
         uses: github/codeql-action/autobuild@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        # The Go extractor loads every package's types at once and has run the
+        # runner out of memory, which shuts the runner down mid-extraction. A
+        # soft limit makes it collect garbage before the 16 GB runner is full.
+        env:
+          GOMEMLIMIT: 10GiB
       - name: Analyse
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
