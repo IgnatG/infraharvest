@@ -1378,12 +1378,13 @@ jobs:
           for a in "$@"; do case "$a" in --schema=*) doc=${a#*=} ;; --out-file=*) file=${a#*=} ;; esac; done
           printf '%s\n' "$*" >> "$LOG"
           if [[ "$doc" == graph && "${OLD-}" == 1 ]]; then echo "unknown document \"graph\"" >&2; exit 2; fi
-          printf '{"schema":"%s"}\n' "$doc" > "$file"
+          printf '{"schema":"%s","run_id":"run-1"}\n' "$doc" > "$file"
           EOF
-          # sign-blob --yes --bundle <bundle> <file>: writes the bundle.
+          # sign-blob --yes --new-bundle-format --bundle <bundle> <file>:
+          # writes a message-signature bundle.
           cat > "$stubs/cosign" <<'EOF'
           #!/usr/bin/env bash
-          printf '{"signed":"%s"}\n' "$5" > "$4"
+          printf '{"messageSignature":{"signed":"%s"}}\n' "$6" > "$5"
           EOF
           chmod +x "$stubs/infraharvest" "$stubs/cosign"
           cd "$work" || exit 1
@@ -1394,6 +1395,7 @@ jobs:
             shift
             : > "$RUNNER_TEMP/$name.out"
             env -i PATH="$PATH" HOME="$HOME" GITHUB_OUTPUT="$RUNNER_TEMP/$name.out" LOG="$RUNNER_TEMP/$name.log" \
+              GITHUB_REPOSITORY=acme/platform GITHUB_SHA=0123456789abcdef0123456789abcdef01234567 GITHUB_RUN_ID=1234567890 \
               BINARY="$stubs/infraharvest" COSIGN="$stubs/cosign" OUT=infrastructure "$@" bash "$script"
           }
           dir=infrastructure/_reports/evidence
@@ -1403,16 +1405,17 @@ jobs:
           # Signed: the four documents, with the inventory's tags left out
           # and the times passed on, and a SHA256SUMS that checks.
           evidence signed ACTIONS_ID_TOKEN_REQUEST_URL=https://token.example STARTED_AT=2026-11-09T10:00:00Z FINISHED_AT=2026-11-09T10:05:00Z
-          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,graph.json,inventory.json,run.json"
+          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,graph.json,inventory.json,manifest.json,report.json,report.md,run.json"
           (cd "$dir" && sha256sum --check --quiet SHA256SUMS)
-          test "$(awk '{print $2}' "$dir/SHA256SUMS" | paste -sd, -)" = "../report.json,../report.md,inventory.json,run.json,gate.json,graph.json"
+          test "$(awk '{print $2}' "$dir/SHA256SUMS" | paste -sd, -)" = "report.json,report.md,inventory.json,run.json,gate.json,graph.json,manifest.json"
+          test "$(jq -r '.schema, .repository, .workflow_run_id, .run_id, (.files | length)' "$dir/manifest.json" | paste -sd, -)" = "infraweaver/evidence-manifest/v1,acme/platform,1234567890,run-1,6"
           grep -q -- '--schema=inventory .*--drop-tags --started-at=2026-11-09T10:00:00Z' "$RUNNER_TEMP/signed.log"
           test "$(cat "$RUNNER_TEMP/signed.out")" = "evidence-dir=$dir"
 
           # Again, by a release without the graph: the earlier run's
           # documents are gone, and the graph is left out.
           evidence old ACTIONS_ID_TOKEN_REQUEST_URL=https://token.example OLD=1
-          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,inventory.json,run.json"
+          test "$(files)" = "SHA256SUMS,SHA256SUMS.sigstore.json,gate.json,inventory.json,manifest.json,report.json,report.md,run.json"
           (cd "$dir" && sha256sum --check --quiet SHA256SUMS)
 
           # Without id-token: write, and with the directory a link.

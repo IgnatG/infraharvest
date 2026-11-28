@@ -129,7 +129,14 @@ inputs:
     description: With control-plane-url, don't fail the step when the export or the upload fails; a warning says why.
     default: "false"
   sign-evidence:
-    description: After the import, write infraharvest export's documents (inventory without tags, run, gate and, where the release has it, graph) to _reports/evidence in the out directory, with a SHA256SUMS file of them and of the report, signed keylessly with the job's identity (SHA256SUMS.sigstore.json), so that the pull request or commit carries evidence anyone can verify with cosign. Needs id-token write permission.
+    description: >-
+      After the import, write infraharvest export's documents (inventory without tags, run, gate and,
+      where the release has it, graph) to _reports/evidence in the out directory, with copies of the report,
+      a manifest.json and a SHA256SUMS file of all of them (bare names), signed keylessly with the job's
+      identity (SHA256SUMS.sigstore.json, a Sigstore bundle in the new format), so that the pull request or
+      commit carries evidence anyone can verify with cosign. With control-plane-url, the control plane keeps
+      it too (hosted evidence is a paid plan feature; a refusal is a warning, never a failure). Needs
+      id-token write permission.
     default: "false"
 
   diagram:
@@ -813,6 +820,7 @@ runs:
         IMPORT: ${{ inputs.import }}
         IMPORT_OUTCOME: ${{ steps.import.outcome }}
         COMMAND: ${{ inputs.control-plane-command }}
+        EVIDENCE_DIR: ${{ steps.evidence.outputs.evidence-dir }}
         DISCOVER: ${{ inputs.discover }}
         DISCOVER_OUTCOME: ${{ steps.discover.outcome }}
         VERIFY: ${{ inputs.verify }}

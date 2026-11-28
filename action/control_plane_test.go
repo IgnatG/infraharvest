@@ -27,6 +27,7 @@ const (
 	runID            = "6f1c9d3e-0a52-5b8e-9c47-2d1f3a5b7c90"
 	driftRunID       = "0b7e5c1a-4d3f-5e92-8a16-9c2d4e6f8a10"
 	sessionPath      = "/api/v1/session"
+	storagePrefix    = "/storage/"
 )
 
 // documents are the ones the script sends, in the order it sends them.
@@ -84,6 +85,8 @@ type controlPlane struct {
 	retryAfterHeader string
 	rateLimitBody    string // when set, the whole body of a 429
 
+	answers map[string]string // the JSON body of a success, per path, when a test sets one
+
 	sessionLimits string // when set, the "limits" of the session answer, as JSON
 	sessionExtra  string // when set, more members of the session answer, such as `"entitlements":{}`
 	plain         bool   // refuse with plain text, not JSON
@@ -92,7 +95,7 @@ type controlPlane struct {
 
 func newControlPlane(t *testing.T) *controlPlane {
 	t.Helper()
-	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}, sizes: map[string]int{}, reasons: map[string]string{}}
+	cp := &controlPlane{statuses: map[string][]int{}, calls: map[string]int{}, headers: map[string]http.Header{}, bodies: map[string]string{}, sizes: map[string]int{}, reasons: map[string]string{}, answers: map[string]string{}}
 	cp.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		cp.mu.Lock()
 		defer cp.mu.Unlock()
@@ -125,11 +128,17 @@ func newControlPlane(t *testing.T) *controlPlane {
 				cp.statuses[r.URL.Path] = queue[1:]
 			}
 		}
-		if r.URL.Path == sessionPath {
+		switch {
+		case r.URL.Path == sessionPath:
 			if r.Header.Get("X-GitHub-OIDC-Token") != oidcToken {
 				status = http.StatusUnauthorized
 			}
-		} else if r.Header.Get("Authorization") != "Bearer "+runToken {
+		case strings.HasPrefix(r.URL.Path, storagePrefix):
+			// A signed URL is the credential: the run token isn't sent there.
+			if r.Header.Get("Authorization") != "" {
+				status = http.StatusBadRequest
+			}
+		case r.Header.Get("Authorization") != "Bearer "+runToken:
 			status = http.StatusUnauthorized
 		}
 		if status == http.StatusTooManyRequests && cp.retryAfterHeader != "" {
@@ -151,6 +160,8 @@ func newControlPlane(t *testing.T) *controlPlane {
 			} else {
 				fmt.Fprintf(w, `{"error":%q}`, reason)
 			}
+		case cp.answers[r.URL.Path] != "":
+			fmt.Fprint(w, cp.answers[r.URL.Path])
 		case r.URL.Path == sessionPath:
 			limits := ""
 			if cp.sessionLimits != "" {
@@ -196,7 +207,7 @@ type result struct {
 
 // layout is which reports the output directory has: an import's, a drift
 // check's, the inventories a discover run saved and verify.json.
-type layout struct{ report, drift, inventory, verify, linkInventory bool }
+type layout struct{ report, drift, inventory, verify, linkInventory, evidence bool }
 
 // run runs the script in a directory with an output directory that has a
 // report (an import's, unless noReport), with env added to the variables a
@@ -249,6 +260,9 @@ func runIn(t *testing.T, mode string, env map[string]string, files layout) resul
 		if err := os.WriteFile(filepath.Join(inventories, "aws-0123456789abcdef.json"), []byte("{}"), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if files.evidence {
+		writeEvidence(t, filepath.Join(dir, "out", "_reports", "evidence"))
 	}
 	bin := filepath.Join(dir, "bin", "infraharvest")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {
