@@ -93,14 +93,26 @@ func listedInScope(provider harvest.Provider, c *callContext, pattern string, li
 // resource_graph does through Resource Manager, where a lookup that fails
 // leaves the resource out unseen; the children of other types, which only
 // the resources the selection keeps get (see withChildImports); the
-// types the import doesn't list (see selection.Unwanted) or can't import; and
-// the types the provider says it lists in part (see
-// harvest.ProviderWithPartialTypes).
+// types the import doesn't list (see selection.Unwanted) or can't import; the
+// types the provider says it lists in part (see
+// harvest.ProviderWithPartialTypes); and the types of a dependent service
+// (see harvest.Profile.DependentServices), unless the call lists every
+// service it takes its resources from: it asks only about what they
+// listed.
 func typesListedInFull(provider harvest.Provider, c *callContext) map[string]bool {
+	_, listed := typesOfCall(provider, c)
+	return listed
+}
+
+// typesOfCall returns the types of the call c: those of its services, and
+// of its inventory entries when a service lists through an inventory API,
+// whether or not the call lists them in full, and those it does (see
+// typesListedInFull), a subset of them.
+func typesOfCall(provider harvest.Provider, c *callContext) (covered, listed map[string]bool) {
 	cat := c.cat
-	types := map[string]bool{}
+	covered, listed = map[string]bool{}, map[string]bool{}
 	if cat == nil {
-		return types
+		return covered, listed
 	}
 	children := map[string]bool{}
 	for _, typ := range cat.Types() {
@@ -114,11 +126,12 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 	if p, ok := provider.(harvest.ProviderWithPartialTypes); ok {
 		partial = p.PartialTypes()
 	}
-	inventoryServices := provider.Profile().Layout.InventoryServices
+	profile := provider.Profile()
+	inventoryServices := profile.Layout.InventoryServices
 	inventory := slices.ContainsFunc(c.services, func(s string) bool { return slices.Contains(inventoryServices, s) })
 	for _, typ := range cat.Types() {
 		e, ok := cat.View(typ)
-		if !ok || children[typ] || e.NotImportable != "" || (c.unwanted != nil && c.unwanted(typ)) || slices.Contains(partial, typ) {
+		if !ok {
 			continue
 		}
 		switch {
@@ -126,13 +139,27 @@ func typesListedInFull(provider harvest.Provider, c *callContext) map[string]boo
 			// The inventory service maps the resources it lists to it.
 		case e.Service == "" || !slices.Contains(c.services, e.Service):
 			continue
-		case slices.Contains(inventoryServices, e.Service):
-			// Its service maps it one resource at a time.
-			continue
 		}
-		types[typ] = true
+		covered[typ] = true
+		switch {
+		case children[typ] || e.NotImportable != "" || (c.unwanted != nil && c.unwanted(typ)) || slices.Contains(partial, typ):
+		case e.Inventory == nil && slices.Contains(inventoryServices, e.Service):
+			// Its service maps it one resource at a time.
+		case e.Service != "" && slices.Contains(profile.DependentServices, e.Service) && !listsEveryServiceItDependsOn(provider, c.services):
+		default:
+			listed[typ] = true
+		}
 	}
-	return types
+	return covered, listed
+}
+
+// listsEveryServiceItDependsOn reports whether services, those of a call,
+// has every service a dependent service of provider takes its resources
+// from (see harvest.Profile.DependentServices): its other services, but
+// those a wildcard leaves out (see Services). Without them it asks about
+// only some of the resources that can have what it lists.
+func listsEveryServiceItDependsOn(provider harvest.Provider, services []string) bool {
+	return !slices.ContainsFunc(Services(provider), func(s string) bool { return !slices.Contains(services, s) })
 }
 
 // notInCloud returns, sorted by address, the resources of existing, what

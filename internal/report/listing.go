@@ -38,15 +38,22 @@ var FilterKinds = []string{FilterID, FilterTag, FilterWhere, FilterServices, Fil
 // is not known to have been listed in full.
 type Listing struct {
 	Scope string `json:"scope"`
-	// Complete is whether nothing narrowed the scope's listing: no filter
+	// Complete is whether nothing narrowed the scope's listing (no filter
 	// (Filters is empty), no part of it failed, and the resources weren't
-	// read from an inventory discover saved, which may be older.
+	// read from an inventory discover saved, which may be older) and Types
+	// holds every type of the call: the children of other resources, the
+	// types the provider lists in part, those that can't be imported and
+	// those the import doesn't list are never in Types, so a scope that has
+	// any of them is not complete, and a reader who asks about one type
+	// reads Types.
 	Complete bool `json:"complete"`
 	// Filters are the kinds of filter the listing had (see FilterKinds).
 	Filters []string `json:"filters,omitempty"`
 	// Types are the types the listing found every resource of in the
 	// scope, whether it found any or not: those whose service listed, with
-	// no filter or failure touching them. A type not named here, such as
+	// no filter or failure touching them. A type of a dependent service,
+	// which asks about what the other services listed, is here only if
+	// every service it depends on listed and none failed. A type not named here, such as
 	// one only a child of another resource has, may have resources the
 	// listing didn't find.
 	Types []string `json:"complete_types,omitempty"`

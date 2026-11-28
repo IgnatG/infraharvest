@@ -16,13 +16,16 @@ import (
 // listed is gone (see report.Listing): which kinds of filter narrowed it,
 // whether a service of it failed or it came from a saved inventory, and
 // which types it lists in full in the call's scope (see typesListedInFull),
-// less those a filter or a failed service touched. It records kinds of
-// filter, never what they match.
+// less those a filter or a failed service touched. It is complete only
+// when nothing narrowed it and those types are every type of the call, so
+// that the children, partial, not importable and unwanted types, which
+// are not among them, make it incomplete. It records kinds of filter, never
+// what they match.
 func scopeListing(provider harvest.Provider, c *callContext, listed listing, failures []error) report.Listing {
 	options := c.options
 	l := report.Listing{Scope: c.scope, Filters: narrowedBy(c)}
 	failed, failedAll := failedServices(failures)
-	l.Complete = len(l.Filters) == 0 && len(failed) == 0 && !failedAll && !listed.saved
+	whole := len(l.Filters) == 0 && len(failed) == 0 && !failedAll && !listed.saved
 	// Without a service to tell the types apart, nothing is listed in full:
 	// these touch every type.
 	if listed.saved || failedAll || slices.ContainsFunc(l.Filters, func(k string) bool {
@@ -34,18 +37,25 @@ func scopeListing(provider harvest.Provider, c *callContext, listed listing, fai
 	if err != nil {
 		return l
 	}
-	inventoryServices := provider.Profile().Layout.InventoryServices
-	inventoryFailed := slices.ContainsFunc(inventoryServices, func(s string) bool { return slices.Contains(failed, s) })
-	for typ := range typesListedInFull(provider, c) {
+	profile := provider.Profile()
+	inventoryFailed := slices.ContainsFunc(profile.Layout.InventoryServices, func(s string) bool { return slices.Contains(failed, s) })
+	// A dependent service lists from what the others listed: one that
+	// failed leaves resources out of what it asked about.
+	dependentFailed := len(profile.DependentServices) > 0 && slices.ContainsFunc(failed, func(s string) bool {
+		return !slices.Contains(profile.DependentServices, s) && slices.Contains(Services(provider), s)
+	})
+	covered, listedInFull := typesOfCall(provider, c)
+	for typ := range listedInFull {
 		_, name, _ := strings.Cut(typ, "_")
 		if slices.ContainsFunc(filters, func(f harvest.Filter) bool { return f.AppliesTo(name) }) {
 			continue
 		}
-		if e, ok := c.cat.View(typ); ok && (slices.Contains(failed, e.Service) || e.Inventory != nil && inventoryFailed) {
+		if e, ok := c.cat.View(typ); ok && (slices.Contains(failed, e.Service) || e.Inventory != nil && inventoryFailed || dependentFailed && slices.Contains(profile.DependentServices, e.Service)) {
 			continue
 		}
 		l.Types = append(l.Types, typ)
 	}
+	l.Complete = whole && len(l.Types) == len(covered)
 	return l
 }
 

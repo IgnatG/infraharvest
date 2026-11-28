@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -130,6 +131,25 @@ func TestTypesListedInFull(t *testing.T) {
 	}
 	if got := typesListedInFull(&azureprovider.Provider{}, &callContext{cat: catalogue.MustBuiltin("azurerm"), services: []string{"resource_graph"}}); got["azurerm_resource_group"] {
 		t.Error("azurerm: a type Resource Graph maps through Resource Manager is listed in full")
+	}
+	// diagnostic_setting asks only for the diagnostic settings of what the
+	// other services listed, so its type is complete only when all of them
+	// were selected.
+	az := &azureprovider.Provider{}
+	azurerm := catalogue.MustBuiltin("azurerm")
+	const diagnostic = "azurerm_monitor_diagnostic_setting"
+	others := Services(az)
+	if got := typesListedInFull(az, &callContext{cat: azurerm, services: append(slices.Clone(others), "diagnostic_setting")}); !got[diagnostic] {
+		t.Errorf("azurerm: the settings of every service's resources aren't listed in full")
+	}
+	for name, services := range map[string][]string{
+		"alone":                       {"diagnostic_setting"},
+		"with some of the others":     {"resource_graph", "diagnostic_setting"},
+		"with all but one the others": append(slices.Clone(others[1:]), "diagnostic_setting"),
+	} {
+		if got := typesListedInFull(az, &callContext{cat: azurerm, services: services}); got[diagnostic] {
+			t.Errorf("azurerm: diagnostic_setting %s lists %s in full", name, diagnostic)
+		}
 	}
 	// Azure's provider lists custom roles in part (see its PartialTypes):
 	// one made assignable outside the run isn't listed, nor gone.

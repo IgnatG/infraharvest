@@ -116,8 +116,8 @@
             "properties": {
               "scope": {"type": "string", "minLength": 1},
               "counts": {"$ref": "#/$defs/counts"},
-              "complete": {"description": "True only when nothing narrowed the scope's listing: no filter, no failed service, no listing in part, and not read from an inventory discover saved. Absent means not known to be.", "type": "boolean"},
-              "complete_types": {"description": "The types the import listed every resource of in the scope, those it found none of too. A type not named may have resources the listing didn't find.", "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+              "complete": {"description": "True only when nothing narrowed the scope's listing (no filter, no failed service, no listing in part, and not read from an inventory discover saved) and complete_types names every type of the services it listed. A scope with a type that is a child of another resource, listed in part, not importable or not wanted is never complete, so to ask whether one type was listed in full read complete_types or coverage.types[].complete, not this. Absent means not known to be.", "type": "boolean"},
+              "complete_types": {"description": "The types the import listed every resource of in the scope, those it found none of too. A type of a dependent service, such as Azure's diagnostic settings, which asks only about what the other services listed, is named only if every service it depends on listed and none failed. A type not named may have resources the listing didn't find.", "type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
             }
           }
         }
