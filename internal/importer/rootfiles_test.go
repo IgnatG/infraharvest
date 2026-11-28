@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -19,6 +20,9 @@ import (
 // fakeTerraformBinary writes an executable that answers terraform version -json.
 func fakeTerraformBinary(t *testing.T) string {
 	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("the fake terraform is a shell script, which Windows cannot run")
+	}
 	path := filepath.Join(t.TempDir(), "terraform")
 	script := "#!/bin/sh\necho '{\"terraform_version\":\"1.9.0\",\"platform\":\"linux_amd64\",\"provider_selections\":{},\"terraform_outdated\":false}'\n"
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
