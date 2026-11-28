@@ -5,7 +5,7 @@ package tfstate
 
 import (
 	"encoding/json"
-	"path"
+	"slices"
 	"strings"
 )
 
@@ -16,28 +16,47 @@ import (
 type TrustStatement struct {
 	// Effect is "Allow" or "Deny", as the policy writes it.
 	Effect string
-	// Assumes is true when the statement's actions include sts:AssumeRole,
-	// by name or by a wildcard (sts:Assume*, sts:*, *), or are given as a
-	// NotAction, which is read as including it. A statement of only
-	// sts:AssumeRoleWithWebIdentity or sts:AssumeRoleWithSAML does not.
+	// Assumes is true when the statement's actions include
+	// sts:AssumeRole, by name or by a wildcard (sts:Assume*, sts:*, *),
+	// or, for a NotAction, when it doesn't exclude it: with NotAction
+	// ["sts:AssumeRole"] it is false. For an Effect of "Deny" it says the
+	// action is denied. Names are matched without regard to case, as IAM
+	// does.
 	Assumes bool
+	// AssumesWithWebIdentity is Assumes for sts:AssumeRoleWithWebIdentity,
+	// the action a Federated principal such as an OIDC provider uses.
+	AssumesWithWebIdentity bool
+	// AssumesWithSAML is Assumes for sts:AssumeRoleWithSAML, the action a
+	// Federated SAML provider uses.
+	AssumesWithSAML bool
+	// NotAction is true for a statement that has a NotAction: it applies
+	// to every action but those it names, and the three Assumes fields say
+	// which of the assume actions that leaves.
+	NotAction bool
 	// Principals are the principals the statement names, or, with
-	// NotPrincipal, the ones it excludes. Empty where it names none.
+	// NotPrincipal, the ones it excludes. Empty where it names none. The
+	// wildcard principal, whether the policy writes "*" or {"AWS": "*"},
+	// is the one principal {Type: "*", Value: "*"}.
 	Principals []TrustPrincipal
 	// NotPrincipal is true for a statement that has a NotPrincipal: it
 	// applies to everyone but its Principals.
 	NotPrincipal bool
 	// Conditional is true when the statement has a Condition block, or a
-	// NotAction. The condition is not evaluated and not kept.
+	// NotAction (see NotAction). The condition is not evaluated and not
+	// kept.
 	Conditional bool
 }
 
 // TrustPrincipal is one principal of a trust statement. Type is AWS, Service,
-// Federated or CanonicalUser, and "*" for the bare wildcard principal "*"
-// (whose Value is "*" too). Value is as the policy writes it: an account ID,
-// an ARN, a service name.
+// Federated or CanonicalUser, and "*" for the wildcard principal, which every
+// policy that names everyone as "*" or {"AWS": "*"} has as {"*", "*"} (a
+// "*" under another type, such as {"Service": "*"}, keeps its type). Value
+// is as the policy writes it: an account ID, an ARN, a service name.
 type TrustPrincipal struct {
-	Type, Value string
+	// Type is the kind of principal, or "*" for the wildcard principal.
+	Type string
+	// Value is the principal, as the policy writes it.
+	Value string
 }
 
 // Caps on what is read from one trust policy. Real policies are a few KB (IAM
@@ -84,19 +103,23 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 			return nil, false
 		}
 		st := TrustStatement{Effect: s.Effect}
-		switch {
-		case len(s.NotAction) > 0 && string(s.NotAction) != "null":
-			st.Assumes, st.Conditional = true, true
-		default:
+		if len(s.NotAction) > 0 && string(s.NotAction) != "null" {
+			excluded, ok := stringList(s.NotAction)
+			if !ok {
+				return nil, false
+			}
+			st.NotAction, st.Conditional = true, true
+			st.Assumes = !matchesAny(excluded, assumeRole)
+			st.AssumesWithWebIdentity = !matchesAny(excluded, assumeRoleWithWebIdentity)
+			st.AssumesWithSAML = !matchesAny(excluded, assumeRoleWithSAML)
+		} else {
 			actions, ok := stringList(s.Action)
 			if !ok {
 				return nil, false
 			}
-			for _, a := range actions {
-				if ok, _ := path.Match(strings.ToLower(a), "sts:assumerole"); ok {
-					st.Assumes = true
-				}
-			}
+			st.Assumes = matchesAny(actions, assumeRole)
+			st.AssumesWithWebIdentity = matchesAny(actions, assumeRoleWithWebIdentity)
+			st.AssumesWithSAML = matchesAny(actions, assumeRoleWithSAML)
 		}
 		pr := s.Principal
 		if len(s.NotPrincipal) > 0 && string(s.NotPrincipal) != "null" {
@@ -112,6 +135,47 @@ func trustStatements(document string) ([]TrustStatement, bool) {
 		out = append(out, st)
 	}
 	return out, true
+}
+
+// The actions that assume a role.
+const (
+	assumeRole                = "sts:assumerole"
+	assumeRoleWithWebIdentity = "sts:assumerolewithwebidentity"
+	assumeRoleWithSAML        = "sts:assumerolewithsaml"
+)
+
+// matchesAny reports whether any of the patterns, IAM action names that may
+// have the wildcards * and ?, matches action, a name in lower case. IAM
+// action names are not case sensitive.
+func matchesAny(patterns []string, action string) bool {
+	return slices.ContainsFunc(patterns, func(p string) bool { return wildcardMatch(strings.ToLower(p), action) })
+}
+
+// wildcardMatch reports whether name matches pattern, where * stands for any
+// run of characters, none included, and ? for any one.
+func wildcardMatch(pattern, name string) bool {
+	p, n := 0, 0
+	star, mark := -1, 0
+	for n < len(name) {
+		switch {
+		case p < len(pattern) && (pattern[p] == '?' || pattern[p] == name[n]):
+			p++
+			n++
+		case p < len(pattern) && pattern[p] == '*':
+			star, mark = p, n
+			p++
+		case star >= 0:
+			p = star + 1
+			mark++
+			n = mark
+		default:
+			return false
+		}
+	}
+	for p < len(pattern) && pattern[p] == '*' {
+		p++
+	}
+	return p == len(pattern)
 }
 
 // trustPrincipals reads a Principal: "*", or an object of string or list
@@ -136,7 +200,15 @@ func trustPrincipals(raw json.RawMessage) ([]TrustPrincipal, bool) {
 			return nil, false
 		}
 		for _, v := range vs {
-			out = append(out, TrustPrincipal{Type: t, Value: v})
+			p := TrustPrincipal{Type: t, Value: v}
+			if t == "AWS" && v == "*" {
+				// {"AWS": "*"} is the same as "*".
+				p.Type = "*"
+			}
+			if p.Type == "*" && slices.Contains(out, p) {
+				continue
+			}
+			out = append(out, p)
 		}
 	}
 	return out, true

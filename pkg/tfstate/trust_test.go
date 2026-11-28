@@ -43,8 +43,8 @@ func TestParseRoleTrust(t *testing.T) {
 	want := []TrustStatement{
 		{Effect: "Allow", Assumes: true, Principals: []TrustPrincipal{
 			{"AWS", "arn:aws:iam::222222222222:role/ci"}, {"AWS", "333333333333"}, {"Service", "ec2.amazonaws.com"}}},
-		{Effect: "Allow", Assumes: true, Conditional: true, Principals: []TrustPrincipal{{"*", "*"}}},
-		{Effect: "Allow", Principals: []TrustPrincipal{{"Federated", "arn:aws:iam::111111111111:oidc-provider/x"}}},
+		{Effect: "Allow", Assumes: true, AssumesWithWebIdentity: true, AssumesWithSAML: true, Conditional: true, Principals: []TrustPrincipal{{"*", "*"}}},
+		{Effect: "Allow", AssumesWithWebIdentity: true, Principals: []TrustPrincipal{{"Federated", "arn:aws:iam::111111111111:oidc-provider/x"}}},
 		{Effect: "Deny", Assumes: true, NotPrincipal: true, Principals: []TrustPrincipal{{"AWS", "arn:aws:iam::111111111111:user/u"}}},
 	}
 	if !reflect.DeepEqual(in.Trust, want) {
@@ -120,5 +120,71 @@ func TestParseRoleTrustMixedTypes(t *testing.T) {
 		if in := doc.Instances[0]; !in.TrustUnreadable || in.Trust != nil {
 			t.Errorf("%s: %+v", name, in)
 		}
+	}
+}
+
+// Assumes is whether sts:AssumeRole is allowed, whatever the actions name:
+// a NotAction allows every action it doesn't exclude, and the web identity
+// and SAML actions are told apart from it.
+func TestParseRoleTrustActions(t *testing.T) {
+	t.Parallel()
+	principal := `"Principal":{"Federated":"arn:aws:iam::111111111111:saml-provider/idp"}`
+	for name, tc := range map[string]struct {
+		statement                  string
+		assumes, webIdentity, saml bool
+		notAction, conditional     bool
+	}{
+		"AssumeRole":                {`"Action":"sts:AssumeRole"`, true, false, false, false, false},
+		"any case":                  {`"Action":"STS:assumerole"`, true, false, false, false, false},
+		"web identity only":         {`"Action":"sts:AssumeRoleWithWebIdentity"`, false, true, false, false, false},
+		"SAML only":                 {`"Action":["sts:AssumeRoleWithSAML"]`, false, false, true, false, false},
+		"all by sts:*":              {`"Action":"sts:*"`, true, true, true, false, false},
+		"all by a wildcard":         {`"Action":"*"`, true, true, true, false, false},
+		"all by sts:AssumeRole*":    {`"Action":"sts:AssumeRole*"`, true, true, true, false, false},
+		"a question mark":           {`"Action":"sts:AssumeRol?"`, true, false, false, false, false},
+		"other sts actions":         {`"Action":["sts:TagSession","sts:SetSourceIdentity"]`, false, false, false, false, false},
+		"NotAction of AssumeRole":   {`"NotAction":["sts:AssumeRole"]`, false, true, true, true, true},
+		"NotAction of web identity": {`"NotAction":"sts:AssumeRoleWithWebIdentity"`, true, false, true, true, true},
+		"NotAction of sts:*":        {`"NotAction":"sts:*"`, false, false, false, true, true},
+		"NotAction of something":    {`"NotAction":"s3:*"`, true, true, true, true, true},
+		"NotAction by a wildcard":   {`"NotAction":"sts:Assume*"`, false, false, false, true, true},
+	} {
+		doc, err := Parse(roleState(t, `{"Statement":[{"Effect":"Allow",`+tc.statement+`,`+principal+`}]}`), "s")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		got := doc.Instances[0].Trust
+		if len(got) != 1 {
+			t.Fatalf("%s: %+v", name, doc.Instances[0])
+		}
+		st := got[0]
+		if st.Assumes != tc.assumes || st.AssumesWithWebIdentity != tc.webIdentity || st.AssumesWithSAML != tc.saml || st.NotAction != tc.notAction || st.Conditional != tc.conditional {
+			t.Errorf("%s: got %+v, want assumes %v, web identity %v, SAML %v, NotAction %v, conditional %v", name, st, tc.assumes, tc.webIdentity, tc.saml, tc.notAction, tc.conditional)
+		}
+	}
+}
+
+// The wildcard principal is one shape however the policy writes it.
+func TestParseRoleTrustWildcardPrincipal(t *testing.T) {
+	t.Parallel()
+	want := []TrustPrincipal{{"*", "*"}}
+	for name, principal := range map[string]string{
+		"bare":          `"*"`,
+		"AWS":           `{"AWS":"*"}`,
+		"AWS in a list": `{"AWS":["*"]}`,
+		"twice":         `{"AWS":["*","*"]}`,
+	} {
+		doc, err := Parse(roleState(t, `{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":`+principal+`}]}`), "s")
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if got := doc.Instances[0].Trust[0].Principals; !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: principals %+v, want %+v", name, got, want)
+		}
+	}
+	// Another type's "*" is not the public principal.
+	doc, _ := Parse(roleState(t, `{"Statement":[{"Effect":"Allow","Action":"sts:AssumeRole","Principal":{"Service":"*"}}]}`), "s")
+	if got := doc.Instances[0].Trust[0].Principals; !reflect.DeepEqual(got, []TrustPrincipal{{"Service", "*"}}) {
+		t.Errorf("a service wildcard: %+v", got)
 	}
 }

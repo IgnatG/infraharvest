@@ -5,9 +5,9 @@
 # Terraform state with infra-ontology
 # (https://github.com/hibiscus-ctrl/infra-ontology), checks it, summarises it
 # and keeps it as an artifact. AWS only for now: the Azure and Google Cloud
-# readers are not wired in. Runs only when started by hand, from a branch of
-# this repository, once the repository admin approves its job: it uses the
-# sandbox environment, as the sandbox runs do.
+# readers are not wired in. Runs only when started by hand, from main (the role
+# it signs in to accepts no other ref), once the repository admin approves its
+# job: it uses the sandbox environment, as the sandbox runs do.
 #
 # It only reads. The one command that touches a cloud is `snapshot build`,
 # which lists and reads the state object it is given, takes no lock, and
@@ -21,9 +21,11 @@
 # cannot read a state store (the AWS read-only role denies s3:GetObject). The
 # run signs in to a role of its own: the read-only state role of the proxy's
 # bootstrap stack (its ontology_read_role_arn output), which trusts only this
-# repository's sandbox environment and can read the one state object and
-# nothing else. These variables of the sandbox environment hold what the run
-# needs:
+# repository's sandbox environment, and only this workflow on main (its
+# job_workflow_ref) run from refs/heads/main (its ref), and can read the one
+# state object and nothing else. So the workflow must be dispatched from main:
+# a run from another branch fails to sign in to the role. These variables of
+# the sandbox environment hold what the run needs:
 #
 #   ONTOLOGY_AWS_ROLE_ARN  the role's ARN
 #   ONTOLOGY_AWS_STATE     s3://<bucket>/<key>?workspace_key_prefix=<first

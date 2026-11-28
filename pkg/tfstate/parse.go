@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -62,7 +63,13 @@ type Instance struct {
 	Provider string
 	// ID is the instance's id attribute, or its arn attribute where it has
 	// no id; ARN is its arn attribute, "" where it has none. Both are
-	// "" for a resource that has neither.
+	// "" for a resource that has neither. ID is also "" for a resource of
+	// a provider that isn't a cloud (the random, tls, http, external,
+	// local, null, time and archive providers, told by the type's prefix,
+	// such as random_ or tls_): its id is a value the provider generated,
+	// such as the result of random_string and random_password, the
+	// request an http data source made, with any token in its URL, or a
+	// hash of the content of a file, and it names nothing in a cloud.
 	ID, ARN string
 	// IdentityID is the ID of the instance's resource identity, which the
 	// state of a resource has from Terraform 1.12 on, in the form
@@ -293,7 +300,7 @@ func decodeState(dec *json.Decoder, doc *Document) (int, error) {
 			return 0, err
 		}
 	default:
-		return 0, fmt.Errorf("a state is a JSON object, not %v", tok)
+		return 0, fmt.Errorf("a state is a JSON object, not %s", tokenKind(tok))
 	}
 	// Nothing may follow the state, as encoding/json.Unmarshal says.
 	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
@@ -303,6 +310,25 @@ func decodeState(dec *json.Decoder, doc *Document) (int, error) {
 		return 0, err
 	}
 	return version, nil
+}
+
+// tokenKind says what kind of value tok, a token of a state, starts, for an
+// error: never the value, which may be a secret.
+func tokenKind(tok json.Token) string {
+	switch v := tok.(type) {
+	case json.Delim:
+		if v == '{' {
+			return "an object"
+		}
+		return "an array"
+	case string:
+		return "a string"
+	case bool:
+		return "a boolean"
+	case float64, json.Number:
+		return "a number"
+	}
+	return "another kind of value"
 }
 
 // decodeField reads the value of the field name of a state's top level
@@ -397,7 +423,7 @@ func decodeResources(dec *json.Decoder, doc *Document) error {
 		return nil
 	case json.Delim('['):
 	default:
-		return fmt.Errorf("a state's resources are an array, not %v", tok)
+		return fmt.Errorf("a state's resources are an array, not %s", tokenKind(tok))
 	}
 	for dec.More() {
 		var res stateResource
@@ -421,7 +447,9 @@ func addResource(doc *Document, res stateResource) {
 			ID:       i.Attributes.ID, ARN: i.Attributes.ARN,
 			Dependencies: i.Dependencies,
 		}
-		if inst.ID == "" {
+		if generatedIDs(res.Type) {
+			inst.ID = ""
+		} else if inst.ID == "" {
 			inst.ID = inst.ARN
 		}
 		inst.Tags = mergeTags(i.Attributes.Labels, i.Attributes.Tags, i.Attributes.TagsAll)
@@ -439,6 +467,21 @@ func addResource(doc *Document, res stateResource) {
 			doc.RemoteStates = append(doc.RemoteStates, remoteState(inst.Address, i))
 		}
 	}
+}
+
+// generatedIDProviders are the providers that aren't clouds: their
+// resources and data sources have an id that is a value they generated or
+// the input they were given, which may be a secret (random_password,
+// random_string, an http data source's URL), so Instance.ID leaves it out.
+var generatedIDProviders = []string{"random", "tls", "http", "external", "local", "null", "time", "archive"}
+
+// generatedIDs reports whether the id of a resource of type typ is a value
+// of a provider that isn't a cloud (see generatedIDProviders): the
+// provider's name is the type's prefix, or the whole type for a data source
+// that has the provider's name, such as http.
+func generatedIDs(typ string) bool {
+	name, _, _ := strings.Cut(typ, "_")
+	return slices.Contains(generatedIDProviders, name)
 }
 
 // mergeTags merges the maps in order, a later one winning on a key they

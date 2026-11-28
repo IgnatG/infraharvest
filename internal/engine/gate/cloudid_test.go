@@ -17,6 +17,34 @@ func importing(address, typ string, after map[string]any) *tfjson.ResourceChange
 	}
 }
 
+// A resource whose arn argument names another resource has no canonical
+// cloud ID of its own: taking it would give two resources one ID.
+func TestCloudIDsLeavesOutAnARNOfAnotherResource(t *testing.T) {
+	lambdaARN := "arn:aws:lambda:eu-west-1:123456789012:function:worker"
+	topicARN := "arn:aws:sns:eu-west-1:123456789012:alerts"
+	archiveARN := "arn:aws:events:eu-west-1:123456789012:archive/old"
+	p := &tfjson.Plan{ResourceChanges: []*tfjson.ResourceChange{
+		importing("aws_lambda_function.worker", "aws_lambda_function", map[string]any{"arn": lambdaARN}),
+		importing("aws_cloudwatch_event_target.worker", "aws_cloudwatch_event_target", map[string]any{"arn": lambdaARN}),
+		// The target's type is one the catalogue doesn't know.
+		importing("aws_cloudwatch_event_target.stream", "aws_cloudwatch_event_target", map[string]any{"arn": "arn:aws:firehose:eu-west-1:123456789012:deliverystream/audit"}),
+		// The catalogue knows the ARN is a function's, so no other type has it.
+		importing("aws_lambda_alias.live", "aws_lambda_alias", map[string]any{"arn": lambdaARN}),
+		importing("aws_sns_topic.alerts", "aws_sns_topic", map[string]any{"arn": topicARN}),
+		// A type the catalogue has, without an ARN shape to compare with.
+		importing("aws_cloudwatch_event_archive.old", "aws_cloudwatch_event_archive", map[string]any{"arn": archiveARN}),
+		importing("aws_sns_topic_policy.alerts", "aws_sns_topic_policy", map[string]any{"arn": topicARN}),
+	}}
+	want := map[string]string{
+		"aws_lambda_function.worker":       lambdaARN,
+		"aws_sns_topic.alerts":             topicARN,
+		"aws_cloudwatch_event_archive.old": archiveARN,
+	}
+	if got := CloudIDs(p); !maps.Equal(got, want) {
+		t.Errorf("CloudIDs:\n got %v\nwant %v", got, want)
+	}
+}
+
 func TestCloudIDs(t *testing.T) {
 	bucketARN := "arn:aws:s3:::logs-prod"
 	govARN := "arn:aws-us-gov:iam::123456789012:role/deploy"

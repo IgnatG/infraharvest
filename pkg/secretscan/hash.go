@@ -18,9 +18,31 @@ import (
 // with, if --hash-key-file doesn't name a file.
 const KeyEnv = "INFRAHARVEST_EXPORT_KEY"
 
-// minKeyLength is the shortest key --hash-ids accepts, in bytes: a short
-// one would let whoever holds the export try every key.
-const minKeyLength = 16
+// MinKeyLength is the shortest key --hash-ids accepts, in bytes: a short
+// one would let whoever holds the export try every key. Hash, HashID and
+// NewTagFilter panic on a shorter one; CheckKey and NewTagFilterChecked
+// return an error instead.
+const MinKeyLength = 16
+
+// CheckKey returns an error for a key shorter than MinKeyLength bytes, the
+// shortest ReadKey accepts and Hash, HashID and NewTagFilter take. A nil key
+// is none, which hashes nothing, and is not an error. Call it where the key
+// comes from, to fail with an error and not a panic.
+func CheckKey(key []byte) error {
+	if key != nil && len(key) < MinKeyLength {
+		return errors.New("the hash key must have at least 16 bytes: use a random one, such as the output of openssl rand -hex 32")
+	}
+	return nil
+}
+
+// mustKey panics for a key CheckKey refuses: a function that can't return an
+// error must not hash with a key anyone could try every value of, nor leave
+// the value it was asked to hide as it is.
+func mustKey(key []byte) {
+	if err := CheckKey(key); err != nil {
+		panic("secretscan: " + err.Error())
+	}
+}
 
 // ReadKey returns the key --hash-ids hashes with: the content of file if
 // it is set, else the environment variable KeyEnv (see getenv, such as
@@ -41,7 +63,7 @@ func ReadKey(file string, getenv func(string) string) ([]byte, error) {
 	default:
 		return nil, fmt.Errorf("--hash-ids needs a key you hold: set %s, or name a file with --hash-key-file", KeyEnv)
 	}
-	if len(key) < minKeyLength {
+	if err := CheckKey(key); err != nil || key == nil {
 		return nil, errors.New("the hash key must have at least 16 bytes: use a random one, such as the output of openssl rand -hex 32")
 	}
 	return key, nil
@@ -51,8 +73,11 @@ func ReadKey(file string, getenv func(string) string) ([]byte, error) {
 // when key is nil or s is empty. The same key gives the same hash for the
 // same value, so a control plane can tell resources apart across exports;
 // only whoever has the key can check a guess. It is the hash of
-// infraharvest export --hash-ids.
+// infraharvest export --hash-ids. It panics for a key shorter than
+// MinKeyLength bytes, which would give the hash away to a guess; check the
+// key with CheckKey first.
 func Hash(key []byte, s string) string {
+	mustKey(key)
 	if key == nil || s == "" {
 		return s
 	}
@@ -65,7 +90,8 @@ func Hash(key []byte, s string) string {
 // lower-cased before it is hashed, as Azure treats its case as
 // insignificant and spells it differently from one source to the next, so
 // the same resource hashes the same. Other IDs are hashed as they are, and
-// without a key the ID is returned unchanged, in its own case.
+// without a key the ID is returned unchanged, in its own case. It panics
+// for a key shorter than MinKeyLength bytes (see Hash).
 func HashID(key []byte, s string) string {
 	if key != nil && IsAzureID(s) {
 		s = strings.ToLower(s)

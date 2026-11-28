@@ -27,13 +27,27 @@ type TagFilter struct {
 // NewTagFilter returns a filter that drops the tags with the keys dropKeys,
 // or every tag if dropAll is set, and any tag that looks like it holds a
 // secret (see LooksSecret). If hashKey is not nil, it also hashes (see
-// Hash) the tags that give away the ID or the name of their resource.
+// Hash) the tags that give away the ID or the name of their resource. It
+// panics for a hashKey shorter than MinKeyLength bytes, which would give the
+// hashes away to a guess; NewTagFilterChecked returns an error for one
+// instead.
 func NewTagFilter(dropKeys []string, dropAll bool, hashKey []byte) *TagFilter {
+	mustKey(hashKey)
 	f := &TagFilter{drop: map[string]bool{}, all: dropAll, key: hashKey, dropped: map[string]bool{}}
 	for _, k := range dropKeys {
 		f.drop[k] = true
 	}
 	return f
+}
+
+// NewTagFilterChecked is NewTagFilter that returns an error, and no filter,
+// for a hashKey shorter than MinKeyLength bytes (see CheckKey), instead of
+// panicking.
+func NewTagFilterChecked(dropKeys []string, dropAll bool, hashKey []byte) (*TagFilter, error) {
+	if err := CheckKey(hashKey); err != nil {
+		return nil, err
+	}
+	return NewTagFilter(dropKeys, dropAll, hashKey), nil
 }
 
 // Tags returns the tags of a resource whose ID and name are id and name

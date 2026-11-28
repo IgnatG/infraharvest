@@ -3,6 +3,7 @@ provider: aws
 service: sns
 types:
   aws_sns_topic:
+    arn: { service: sns, resource_type: "" }
     cloudformation_types: ["AWS::SNS::Topic"]
     # What AWS gives a topic that doesn't set them.
     defaults: [signature_version=1, tracing_config=PassThrough]

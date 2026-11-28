@@ -694,3 +694,12 @@ func TestTagsHoldingTheCloudIDAreHashed(t *testing.T) {
 		t.Errorf("without a key the tag stays: %v", got)
 	}
 }
+
+// A hash key shorter than 16 bytes is an error, not a panic or a weak hash.
+func TestBuildRefusesAShortHashKey(t *testing.T) {
+	t.Parallel()
+	_, err := Build(Options{Out: t.TempDir(), Document: DocInventory, HashKey: []byte("key")})
+	if err == nil || !strings.Contains(err.Error(), "at least 16 bytes") {
+		t.Errorf("a short key: %v", err)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	goversion "github.com/hashicorp/go-version"
@@ -74,11 +75,23 @@ func rootConfig(ctx context.Context, client *http.Client, registry, registryURL,
 	}
 	if len(all) > 0 {
 		v, err := versions.ProviderVersion(ctx, client, registryURL, source, all)
+		var declined []moduleConstraint
+		if err != nil && capped {
+			// The cap exists to avoid the newest release, so it stays:
+			// the modules that accept nothing under it are declined.
+			v, constraints, declined, err = pinUnderCap(ctx, client, registryURL, source, limit, constraints)
+			if err != nil {
+				return nil, err
+			}
+			for _, c := range declined {
+				logging.Warnf("%s %s: not called: it accepts %s %s, and no release under %s, which holds %s back (%s), is among them; its resources stay in the root", c.module, c.version, p.Source, c.constraint, limit.below, p.Source, limit.reason)
+			}
+			refused = append(refused, declined...)
+		}
 		switch {
 		case err != nil:
 			// The modules' calls then fail their plans and are declined.
 			logging.Warnf("%s: %v; pinning the newest release, %s", p.Source, err, latest)
-			capped = false
 		case v.LessThan(latest):
 			chosen, held = v, heldBack(latest, constraints)
 			if capped {
@@ -150,3 +163,22 @@ func qualifiedSource(registry, source string) string {
 
 // BackendFileName holds a generated root's state backend.
 const BackendFileName = "backend.tf"
+
+// pinUnderCap returns the newest release of the provider at source under
+// limit that the module versions in constraints accept, with the ones it
+// keeps, taken in order, and the ones it declines because no release under
+// the cap is among those the ones before them accept too. It fails when no
+// release is under the cap.
+func pinUnderCap(ctx context.Context, client *http.Client, registryURL, source string, limit providerCap, constraints []moduleConstraint) (v *goversion.Version, kept, declined []moduleConstraint, err error) {
+	all := []goversion.Constraints{limit.constraint()}
+	for _, c := range constraints {
+		if _, err := versions.ProviderVersion(ctx, client, registryURL, source, append(slices.Clone(all), c.constraint)); err != nil {
+			declined = append(declined, c)
+			continue
+		}
+		all = append(all, c.constraint)
+		kept = append(kept, c)
+	}
+	v, err = versions.ProviderVersion(ctx, client, registryURL, source, all)
+	return v, kept, declined, err
+}
