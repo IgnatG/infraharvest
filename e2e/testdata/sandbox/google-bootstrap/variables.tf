@@ -77,3 +77,55 @@ variable "deny_data_reads" {
   type        = bool
   default     = true
 }
+
+variable "terragram_enabled" {
+  description = "Whether Terragram's own sandbox workflow may sign in to this project: its workload identity pool and provider, and the terragram-ci-sandbox service account that applies and destroys its Google Cloud plans (terragram.tf). Off unless set."
+  type        = bool
+  default     = false
+}
+
+variable "terragram_repository" {
+  description = "The Terragram repository, as owner/name, for the provider's description and the gh commands the terragram_gh_commands output prints."
+  type        = string
+  default     = "hibiscus-ctrl/terragram"
+}
+
+variable "terragram_repository_id" {
+  description = "The Terragram repository's immutable numeric ID, which its workload identity provider requires: unlike its name, no other repository can take it."
+  type        = string
+  default     = "1467399821"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.terragram_repository_id))
+    error_message = "Use the repository's numeric ID."
+  }
+}
+
+variable "terragram_repository_owner_id" {
+  description = "The immutable numeric ID of the Terragram repository's owner, which its workload identity provider requires."
+  type        = string
+  default     = "308051725"
+
+  validation {
+    condition     = can(regex("^[0-9]+$", var.terragram_repository_owner_id))
+    error_message = "Use the owner's numeric ID."
+  }
+}
+
+variable "terragram_environment" {
+  description = "The environment of the Terragram repository whose jobs may sign in: the one that requires its reviewers' approval."
+  type        = string
+  default     = "sandbox"
+}
+
+variable "terragram_workflow" {
+  description = "The path of the Terragram workflow file whose jobs may sign in, which its provider also requires."
+  type        = string
+  default     = ".github/workflows/sandbox-google.yml"
+}
+
+variable "terragram_pool_id" {
+  description = "The Terragram workload identity pool's ID. A deleted pool keeps its ID for 30 days, so pick another to create the pool again sooner."
+  type        = string
+  default     = "terragram-github"
+}

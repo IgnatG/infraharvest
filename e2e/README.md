@@ -395,6 +395,32 @@ gcloud config set project <first-project-id>
 
 Run the printed commands where `gh` is signed in as an administrator of the repository, as for the first project. A later change to the bootstrap is applied in each workspace, with its own variables and its project set.
 
+### Terragram's sandbox in the second Google Cloud project
+
+[Terragram](https://github.com/hibiscus-ctrl/terragram) applies and destroys the Google Cloud plans of its emit gate in a project of its own sandbox workflow, which this bootstrap can let into the second project, off unless set: `-var terragram_enabled=true` (see [`terragram.tf`](testdata/sandbox/google-bootstrap/terragram.tf)). It adds a workload identity pool of its own, `terragram-github`, with a provider that accepts the GitHub tokens of the Terragram repository's `sandbox` environment, run by `.github/workflows/sandbox-google.yml`, and no others (the repository's and its owner's immutable IDs, the environment and the workflow file are its condition), and `terragram-ci-sandbox`, the service account those jobs impersonate, with the predefined roles that manage the plans' kinds of resources (listed in `terragram.tf`) and no key. Nothing about infraharvest's own pool, provider or service accounts changes, none of them trusts Terragram's jobs, and Terragram's account has no role that changes a pool or a service account's IAM policy; it may change the project's IAM policy for the six roles the plans grant their own service accounts alone (an IAM condition on Project IAM Admin), so it can't grant itself or anyone more, or revoke another role. It does hold Service Account User, Creator and Deleter on the project, which Google Cloud can't limit by name, as the fixture's account holds the last two: its jobs could attach, or delete, this bootstrap's service accounts. Attaching is the one that matters: a service account that holds Editor or Owner in the project, such as the default Compute Engine one in an older project, would give a job that attaches it to a virtual machine that role, so check that none does before applying (the first command below prints any, and nothing printed is safe) and remove the grant if one does. A bootstrap applied again restores deleted accounts.
+
+Terragram's resources are not swept by the clean-up above: their names put the kind first (`waf-ih-sbx-tg-…`), which the sweeps' `ih-sbx-` names don't match, and the fixture account has no role for GKE, Memorystore or Firestore. Terragram's workflow destroys its plans and sweeps by its own names and labels itself, and a run can sweep alone (see its runbook). Don't start it while an environments run (`TestSandboxGoogleEnvironments`) is live: that run imports the second project as it is.
+
+In Google Cloud Shell, as an Owner of the second project, in the second project's workspace, apply it with the variables you set for the second project the first time, plus `terragram_enabled`:
+
+```sh
+cd infraharvest/e2e/testdata/sandbox/google-bootstrap
+git pull
+# The change is in the checkout: the file and its variable exist.
+grep -n 'terragram_enabled' variables.tf terragram.tf | head -3
+first=$(terraform workspace select default >/dev/null && terraform output -raw readonly_service_account)
+terraform workspace select second
+gcloud config set project testproject-317011
+# Prints every service account that holds Editor or Owner in the project; apply only when it prints nothing.
+gcloud projects get-iam-policy testproject-317011 --flatten=bindings --filter='bindings.role:(roles/editor OR roles/owner) AND bindings.members:serviceAccount' --format='value(bindings.role,bindings.members)'
+terraform apply -var project_id=testproject-317011 -var slot=second -var deny_data_reads=false \
+  -var "first_readonly_service_account=$first" -var terragram_enabled=true
+terraform output -raw terragram_gh_commands
+terraform workspace select default
+```
+
+`terragram_repository`, `terragram_repository_id` and `terragram_repository_owner_id` default to `hibiscus-ctrl/terragram` and its immutable IDs (`gh api repos/hibiscus-ctrl/terragram --jq '.id, .owner.id'` prints them); `terragram_environment` and `terragram_workflow` name the environment and workflow file the provider requires, and `terragram_pool_id` the pool. Run the printed `gh variable set` commands where `gh` is signed in as an administrator of the Terragram repository: they set `GOOGLE_PROJECT_ID`, `GOOGLE_REGION`, `GOOGLE_WORKLOAD_IDENTITY_PROVIDER` and `GOOGLE_SERVICE_ACCOUNT` in its `sandbox` environment.
+
 ## Infra Ontology trial
 
 The `ontology-dogfood` workflow ([`ontology-dogfood.yml`](../.github/workflows/ontology-dogfood.yml)) builds a snapshot of the Infraweaver proxy's Terraform state with [infra-ontology](https://github.com/hibiscus-ctrl/infra-ontology), checks it with `snapshot verify`, writes the counts of nodes and edges by kind and the sources' status to the run's summary, and keeps the snapshot as an artifact for 7 days. It reads AWS only for now. It is started by hand (`gh workflow run ontology-dogfood.yml`), from a branch of this repository, once the repository admin approves its job: it uses the `sandbox` environment.

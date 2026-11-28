@@ -51,3 +51,24 @@ output "gh_commands" {
     "",
   ])
 }
+
+output "terragram_service_account" {
+  description = "The email of terragram-ci-sandbox, which Terragram's sandbox workflow signs in as (GOOGLE_SERVICE_ACCOUNT in its sandbox environment). Empty unless terragram_enabled."
+  value       = var.terragram_enabled ? google_service_account.terragram[0].email : ""
+}
+
+output "terragram_workload_identity_provider" {
+  description = "The full name of the provider Terragram's sandbox workflow signs in through (GOOGLE_WORKLOAD_IDENTITY_PROVIDER in its sandbox environment). Empty unless terragram_enabled."
+  value       = var.terragram_enabled ? google_iam_workload_identity_pool_provider.terragram[0].name : ""
+}
+
+output "terragram_gh_commands" {
+  description = "Set the variables of the Terragram repository's sandbox environment that its sandbox-google workflow reads. Run them where gh is signed in as an administrator of that repository. Empty unless terragram_enabled."
+  value = !var.terragram_enabled ? "" : join("\n", [
+    "gh variable set GOOGLE_PROJECT_ID --env ${var.terragram_environment} --repo ${var.terragram_repository} --body ${var.project_id}",
+    "gh variable set GOOGLE_REGION --env ${var.terragram_environment} --repo ${var.terragram_repository} --body ${var.region}",
+    "gh variable set GOOGLE_WORKLOAD_IDENTITY_PROVIDER --env ${var.terragram_environment} --repo ${var.terragram_repository} --body ${google_iam_workload_identity_pool_provider.terragram[0].name}",
+    "gh variable set GOOGLE_SERVICE_ACCOUNT --env ${var.terragram_environment} --repo ${var.terragram_repository} --body ${google_service_account.terragram[0].email}",
+    "",
+  ])
+}
