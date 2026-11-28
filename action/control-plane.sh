@@ -16,8 +16,9 @@
 # with :<GITHUB_RUN_ID> after it in GitHub Actions, so that two workflow runs
 # with the same results are two runs to the control plane, and a re-run of one
 # is the same.
-# The OIDC token goes to the session endpoint only. Nothing else is sent. See
-# docs/export.md. The log has one line for each document with its size in
+# The OIDC token goes to the session endpoint only. Nothing else is sent, but
+# the signed evidence of an import, when EVIDENCE_DIR names it (see below).
+# See docs/export.md. The log has one line for each document with its size in
 # bytes, as exported and as gzipped, and nothing of its content.
 #
 # The documents are those of what ran: an import sends ocsf-inventory, run,
@@ -28,6 +29,19 @@
 # and gate (export --command verify), made from verify.json. The inventory is
 # sent as the OCSF inventory: inventory/v1 is not uploaded. The drift summary
 # has a run_id of its own, made from drift.json.
+#
+# With EVIDENCE_DIR, the directory the Sign the evidence step wrote
+# (evidence.sh) and an import that sent its documents, the same session's run
+# token then uploads the signed evidence: POST <url>/api/v1/evidence with
+# {"sums", "bundle", "manifest"} (SHA256SUMS, SHA256SUMS.sigstore.json and
+# manifest.json, gzipped, under Idempotency-Key <run_id>:evidence:<GITHUB_RUN_ID>:<GITHUB_RUN_ATTEMPT>),
+# which answers a signed PUT URL for each file the sums list; each file goes
+# to its URL with the content type the answer gives, and POST to the
+# answer's complete_path (no body) finishes the bundle. The run token goes to
+# the control plane only, never to the signed URLs, which are masked and not
+# printed. The evidence never fails the step, whatever control-plane-optional
+# says: a 402 (the plan keeps no hosted evidence) is a notice, any other
+# refusal or failure a warning.
 #
 # Usage: control-plane.sh check|upload
 #
@@ -49,7 +63,7 @@
 # 100000000), say otherwise; limits that aren't valid are ignored. A failure
 # fails the step, unless OPTIONAL is true.
 #
-# Inputs, as variables: URL, AUDIENCE, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
+# Inputs, as variables: URL, AUDIENCE, EVIDENCE_DIR, DROP_TAGS, DROP_TAG, DROP_ADDRESSES,
 # HASH_IDS, HASH_KEY (else INFRAHARVEST_EXPORT_KEY), REQUEST_ID, OPTIONAL;
 # and, for upload, BINARY, OUT, IMPORT, IMPORT_OUTCOME (the Import step's
 # outcome; skipped when it didn't run), COMMAND (incremental when a control
@@ -222,7 +236,10 @@ seconds() {
 
 # http_request <url> <header-file> <out-file> [curl-argument...]: a GET, or
 # whatever the extra curl arguments make of it (-X POST and a body), with
-# the headers of the file. A 5xx, a 429 and a connection failure that another
+# the headers of the file. A url of the form @<file> is a curl configuration
+# file with the url in it, so that a secret URL (a signed upload) isn't in
+# curl's arguments, where the process list shows it; its scheme is then
+# target_scheme (http or https). A 5xx, a 429 and a connection failure that another
 # try can get past (see transient_curl_exit) are retried; a 429 waits as long
 # as the control plane asks, up to max_wait seconds, else the growing delay.
 # The request takes at most max_time seconds. Sets http_code, and leaves the
@@ -232,13 +249,21 @@ http_request() {
   shift 3
   local args=(--silent --show-error --fail-with-body --connect-timeout 10 --max-time "$max_time"
     --max-redirs 0 -H "@$headers" -o "$body" -D "$tmp/response-headers" -w '%{http_code}' "$@")
-  if [[ "$target" == https://* ]]; then args+=(--proto '=https'); else args+=(--proto '=http'); fi
+  local scheme=http
+  if [[ "$target" == @* ]]; then
+    scheme=${target_scheme:?}
+    args+=(--config "${target#@}")
+    target=
+  elif [[ "$target" == https://* ]]; then
+    scheme=https
+  fi
+  args+=(--proto "=$scheme")
   local attempt=1 delay=${INFRAHARVEST_UPLOAD_RETRY_DELAY-2} rc retry=false wait_ms
   local max_wait_ms=$((${INFRAHARVEST_UPLOAD_MAX_WAIT-60} * 1000))
   while :; do
     rc=0
     rm -f "$tmp/response-headers"
-    http_code=$(curl "${args[@]}" "$target" 2> "$tmp/curl-error") || rc=$?
+    http_code=$(curl "${args[@]}" ${target:+"$target"} 2> "$tmp/curl-error") || rc=$?
     http_code=${http_code:-000}
     if [[ "$http_code" =~ ^2[0-9][0-9]$ ]]; then return 0; fi
     # 000: curl got no answer. Only what can pass is tried again, such as a
@@ -432,6 +457,157 @@ read_run_id() {
   [[ -n "$doc_run_id" ]] || problem "the $1 document has no run_id"
   # The run_id goes into a header.
   [[ "$doc_run_id" =~ ^[A-Za-z0-9._:-]+$ ]] || problem "the $1 document's run_id has characters that can't go in a header"
+}
+
+# evidence_warn <message>: the evidence wasn't uploaded, and the step goes on.
+evidence_warn() {
+  annotation warning "control plane: the signed evidence wasn't uploaded: $1"
+}
+
+# evidence_reason <body-file>: the error (and message) of a refusal's JSON
+# body, on one line, else the start of the body: the control plane's own
+# words, which hold no token or URL.
+evidence_reason() {
+  local reason=
+  if [[ -s "$1" ]]; then
+    reason=$(jq -r 'if type == "object" and (.error | type) == "string" then .error else empty end' "$1" 2> /dev/null | head -c 200 | tr '\r\n' '  ') || reason=
+    if [[ -z "$reason" ]]; then reason=$(head -c 200 "$1" | tr '\r\n' '  '); fi
+  fi
+  printf '%s' "$reason"
+}
+
+# upload_evidence: uploads the signed evidence in EVIDENCE_DIR with the run
+# token of the session (see the top). Never fails the step: every problem
+# is a warning and returns 1, a 402 a notice, so the caller ignores the exit.
+upload_evidence() {
+  local dir=${EVIDENCE_DIR-} name sums bundle manifest ev_run_id workflow_key
+  [[ -n "$dir" ]] || return 0
+  if linked "$dir" || [[ ! -d "$dir" ]]; then
+    evidence_warn "$dir isn't a directory that no symbolic link leads to"
+    return 1
+  fi
+  for name in SHA256SUMS SHA256SUMS.sigstore.json manifest.json; do
+    if ! unlinked "$dir/$name"; then
+      evidence_warn "$dir/$name isn't a regular file that no symbolic link leads to"
+      return 1
+    fi
+  done
+  sums="$dir/SHA256SUMS"
+  bundle="$dir/SHA256SUMS.sigstore.json"
+  manifest="$dir/manifest.json"
+  ev_run_id=$(jq -r '.run_id // empty' "$manifest" 2> /dev/null) || ev_run_id=
+  if [[ ! "$ev_run_id" =~ ^[A-Za-z0-9._:-]{1,128}$ ]]; then
+    evidence_warn "$manifest has no run_id a header can hold"
+    return 1
+  fi
+  # The same run in another workflow run, or another attempt of it (signed
+  # again), is other evidence, so the key names them too, as the documents' do.
+  workflow_key="$ev_run_id:evidence${GITHUB_RUN_ID:+:$GITHUB_RUN_ID${GITHUB_RUN_ATTEMPT:+:$GITHUB_RUN_ATTEMPT}}"
+  if ! jq -n --rawfile sums "$sums" --slurpfile bundle "$bundle" --rawfile manifest "$manifest" \
+    '{sums: $sums, bundle: $bundle[0], manifest: $manifest}' > "$tmp/evidence.json" 2> /dev/null; then
+    evidence_warn "$bundle isn't JSON"
+    return 1
+  fi
+  if ! gzip -n -c "$tmp/evidence.json" > "$tmp/evidence.json.gz"; then
+    evidence_warn "couldn't compress the request"
+    return 1
+  fi
+  local json gz
+  json=$(wc -c < "$tmp/evidence.json")
+  gz=$(wc -c < "$tmp/evidence.json.gz")
+  json=${json//[[:space:]]/}
+  gz=${gz//[[:space:]]/}
+  if ((gz > max_gzip_bytes || json > max_plain_bytes)); then
+    evidence_warn "the request is ${json} bytes, ${gz} bytes gzipped, against at most ${max_plain_bytes} and ${max_gzip_bytes}"
+    return 1
+  fi
+  upload_max_time "$tmp/evidence.json.gz"
+  if ! http_request "$base/api/v1/evidence" "$tmp/headers" "$tmp/evidence-response" \
+    -X POST -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
+    -H "Idempotency-Key: $workflow_key" --data-binary "@$tmp/evidence.json.gz"; then
+    max_time=$base_max_time
+    if [[ "$http_code" == 402 ]]; then
+      annotation notice "control plane: the organisation's plan keeps no hosted evidence ($(evidence_reason "$tmp/evidence-response")): the signed evidence stays in the repository only"
+    else
+      evidence_warn "$(describe "$tmp/evidence-response" "evidence upload")"
+    fi
+    return 1
+  fi
+  max_time=$base_max_time
+  local status complete_path
+  status=$(jq -r 'if type == "object" and (.status | type) == "string" then .status else empty end' "$tmp/evidence-response" 2> /dev/null) || status=
+  if [[ "$status" == complete ]]; then
+    annotation notice "control plane: the signed evidence was already complete (HTTP $http_code)"
+    return 0
+  fi
+  complete_path=$(jq -r 'if type == "object" and (.complete_path | type) == "string" then .complete_path else empty end' "$tmp/evidence-response" 2> /dev/null) || complete_path=
+  if [[ ! "$complete_path" =~ ^/api/v1/evidence/[A-Za-z0-9_-]{1,64}/complete$ ]]; then
+    evidence_warn "the answer has no usable complete_path"
+    return 1
+  fi
+  # One line a file: name, content type, signed URL. The URLs are masked
+  # before anything else is done with them.
+  local lines name_ ctype url_ method n=0 uploaded=0
+  lines=$(jq -r '
+    if type == "object" and (.uploads | type) == "array"
+    then .uploads[] | select(type == "object") | [(.name // ""), (.content_type // ""), (.method // ""), (.url // "")] | @tsv
+    else empty end' "$tmp/evidence-response" 2> /dev/null) || lines=
+  rm -f "$tmp/evidence-response"
+  while IFS=$'\t' read -r name_ ctype method url_; do
+    [[ -n "$name_$url_" ]] || continue
+    printf '::add-mask::%s\n' "$url_"
+    n=$((n + 1))
+    if [[ "$method" != PUT || ! "$name_" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ || "$name_" == *..* || ! "$ctype" =~ ^[a-z]+/[a-z0-9.+-]+$ ]]; then
+      evidence_warn "the answer has an upload that isn't a PUT of a file in $dir; stopping before the files are sent"
+      return 1
+    fi
+    if [[ "$url_" =~ ^https://[^[:space:]\"\\]+$ ]]; then
+      target_scheme=https
+    elif [[ "$url_" =~ ^http://(localhost|127\.0\.0\.1|\[::1\])(:[0-9]+)?(/[^[:space:]\"\\]*)?$ ]]; then
+      target_scheme=http
+    else
+      evidence_warn "the answer has an upload URL that isn't https; stopping before the files are sent"
+      return 1
+    fi
+    if ! unlinked "$dir/$name_"; then
+      evidence_warn "$dir/$name_ isn't a regular file that no symbolic link leads to"
+      return 1
+    fi
+    # Each URL goes to curl in a file, with the content type in another;
+    # the run token is not sent there.
+    ( umask 077; printf 'url = "%s"\n' "$url_" > "$tmp/put-config"; printf 'Content-Type: %s\n' "$ctype" > "$tmp/put-headers" )
+    upload_max_time "$dir/$name_"
+    if http_request "@$tmp/put-config" "$tmp/put-headers" "$tmp/put-response" -X PUT --data-binary "@$dir/$name_"; then
+      uploaded=$((uploaded + 1))
+    elif [[ "$http_code" == 409 ]]; then
+      # Write-once: the object is there from an earlier try.
+      uploaded=$((uploaded + 1))
+    else
+      max_time=$base_max_time
+      rm -f "$tmp/put-config" "$tmp/put-headers"
+      evidence_warn "sending $name_ failed (HTTP $http_code)"
+      return 1
+    fi
+    max_time=$base_max_time
+    rm -f "$tmp/put-config" "$tmp/put-headers" "$tmp/put-response"
+  done <<< "$lines"
+  if ((n == 0)); then
+    evidence_warn "the answer lists no file to send"
+    return 1
+  fi
+  if ! http_request "$base$complete_path" "$tmp/headers" "$tmp/evidence-response" -X POST --data-binary '' -H 'Content-Type:'; then
+    if [[ "$http_code" == 422 ]]; then
+      local problems
+      problems=$(jq -r 'if type == "object" and (.problems | type) == "array" then [.problems[] | select(type == "object") | "\(.name // "?"): \(.reason // "?")"] | join(", ") else empty end' "$tmp/evidence-response" 2> /dev/null | head -c 400 | tr '\r\n' '  ') || problems=
+      evidence_warn "the control plane refused the bundle${problems:+: $problems}"
+    else
+      evidence_warn "$(describe "$tmp/evidence-response" "evidence completion")"
+    fi
+    return 1
+  fi
+  local expires
+  expires=$(jq -r 'if type == "object" and (.expires_at | type) == "string" then .expires_at else empty end' "$tmp/evidence-response" 2> /dev/null | head -c 64 | tr -cd '[:graph:]') || expires=
+  annotation notice "control plane: uploaded the signed evidence ($uploaded files${expires:+, kept until $expires})"
 }
 
 upload() {
@@ -628,9 +804,13 @@ upload() {
     annotation notice "control plane: sent the $doc document (HTTP $http_code)"
   done
   output control-plane-run-id "$run_id"
+  # The evidence of an import, after its documents; whatever it comes to, the
+  # step's result is the documents'.
+  if [[ "$send_import" == true ]]; then upload_evidence || true; fi
 }
 
 base=
+target_scheme=
 tmp=
 token=
 run_token=
