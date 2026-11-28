@@ -124,6 +124,12 @@ variable "terragram_workflow" {
   default     = ".github/workflows/sandbox-google.yml"
 }
 
+variable "terragram_workflow_branch" {
+  description = "The ref the Terragram workflow file must be run from, as its tokens' job_workflow_ref names it: only the file on this branch gets in, so a branch's own copy of the workflow can't sign in."
+  type        = string
+  default     = "refs/heads/main"
+}
+
 variable "terragram_pool_id" {
   description = "The Terragram workload identity pool's ID. A deleted pool keeps its ID for 30 days, so pick another to create the pool again sooner."
   type        = string
