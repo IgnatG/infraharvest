@@ -151,3 +151,48 @@ func TestTagHoldingTheIDInAnotherCaseIsHashed(t *testing.T) {
 		t.Errorf("an unrelated tag changed: %v", tags)
 	}
 }
+
+// A key shorter than MinKeyLength would let whoever holds the export try
+// every key, so it is an error where a function can return one, and a panic
+// where it can't, never a weak hash.
+func TestShortKeys(t *testing.T) {
+	t.Parallel()
+	if secretscan.MinKeyLength != 16 {
+		t.Errorf("MinKeyLength = %d, want the documented 16", secretscan.MinKeyLength)
+	}
+	for name, key := range map[string][]byte{"empty": {}, "short": []byte("0123456789abcde"), "one byte": []byte("k")} {
+		if err := secretscan.CheckKey(key); err == nil || !strings.Contains(err.Error(), "at least 16 bytes") {
+			t.Errorf("CheckKey(%s): %v", name, err)
+		}
+		if f, err := secretscan.NewTagFilterChecked(nil, false, key); err == nil || f != nil {
+			t.Errorf("NewTagFilterChecked(%s): %v, %v", name, f, err)
+		}
+		for what, call := range map[string]func(){
+			"Hash":         func() { secretscan.Hash(key, "vpc-0abc1234") },
+			"HashID":       func() { secretscan.HashID(key, "vpc-0abc1234") },
+			"NewTagFilter": func() { secretscan.NewTagFilter(nil, false, key) },
+		} {
+			func() {
+				defer func() {
+					if recover() == nil {
+						t.Errorf("%s with a %s key didn't panic", what, name)
+					}
+				}()
+				call()
+			}()
+		}
+	}
+	ok := []byte("0123456789abcdef")
+	if err := secretscan.CheckKey(ok); err != nil {
+		t.Errorf("CheckKey(16 bytes): %v", err)
+	}
+	if err := secretscan.CheckKey(nil); err != nil {
+		t.Errorf("CheckKey(nil), which hashes nothing: %v", err)
+	}
+	if f, err := secretscan.NewTagFilterChecked(nil, false, ok); err != nil || f == nil {
+		t.Errorf("NewTagFilterChecked(16 bytes): %v, %v", f, err)
+	}
+	if f, err := secretscan.NewTagFilterChecked(nil, false, nil); err != nil || f == nil {
+		t.Errorf("NewTagFilterChecked(nil): %v, %v", f, err)
+	}
+}

@@ -31,6 +31,7 @@ import (
 	"github.com/IgnatG/infraharvest/internal/engine"
 	"github.com/IgnatG/infraharvest/internal/engine/secret"
 	"github.com/IgnatG/infraharvest/internal/report"
+	"github.com/IgnatG/infraharvest/pkg/secretscan"
 )
 
 // Options say what to export.
@@ -119,6 +120,9 @@ var requestIDRE = regexp.MustCompile(requestIDPattern)
 // checkOptions refuses options that can't be right, before anything is
 // read.
 func checkOptions(opts Options) error {
+	if err := secretscan.CheckKey(opts.HashKey); err != nil {
+		return err
+	}
 	if !opts.StartedAt.IsZero() && !opts.FinishedAt.IsZero() && opts.FinishedAt.Before(opts.StartedAt) {
 		return fmt.Errorf("the run finished (%s) before it started (%s)", formatTime(opts.FinishedAt), formatTime(opts.StartedAt))
 	}

@@ -543,3 +543,71 @@ func TestParseTags(t *testing.T) {
 		})
 	}
 }
+
+// A resource of a provider that isn't a cloud has an ID that is a value
+// the provider generated, or the request or content it was given, such as
+// random_string's result or an http data source's URL: it is not kept.
+func TestParseLeavesOutTheIDOfGeneratedValues(t *testing.T) {
+	t.Parallel()
+	const aws = `provider[\"registry.terraform.io/hashicorp/aws\"]`
+	instance := func(mode, typ, id string) string {
+		return `{"mode":"` + mode + `","type":"` + typ + `","name":"x","provider":"` + aws + `","instances":[{"attributes":{"id":"` + id + `","result":"` + id + `"}}]}`
+	}
+	state := `{"version":4,"resources":[` + strings.Join([]string{
+		instance("managed", "random_string", "PLANTED-RANDOM-STRING"),
+		instance("managed", "random_password", "PLANTED-PASSWORD"),
+		instance("managed", "random_uuid", "PLANTED-UUID"),
+		instance("managed", "random_id", "PLANTED-ID"),
+		instance("data", "http", "https://example.com/?token=PLANTED-TOKEN"),
+		instance("data", "external", "PLANTED-EXTERNAL"),
+		instance("managed", "local_file", "PLANTED-LOCAL"),
+		instance("managed", "null_resource", "PLANTED-NULL"),
+		instance("managed", "time_static", "PLANTED-TIME"),
+		instance("data", "archive_file", "PLANTED-ARCHIVE"),
+		instance("managed", "tls_private_key", "PLANTED-TLS"),
+		instance("managed", "aws_s3_bucket", "logs"),
+		instance("managed", "randomized_thing", "kept"),
+	}, ",") + `]}`
+	doc, err := Parse([]byte(state), "s")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range doc.Instances {
+		want := ""
+		if in.Type == "aws_s3_bucket" || in.Type == "randomized_thing" {
+			want = map[string]string{"aws_s3_bucket": "logs", "randomized_thing": "kept"}[in.Type]
+		}
+		if in.ID != want {
+			t.Errorf("%s: ID %q, want %q", in.Type, in.ID, want)
+		}
+	}
+	if out, _ := json.Marshal(doc); strings.Contains(string(out), "PLANTED") {
+		t.Errorf("the document holds a generated value: %s", out)
+	}
+}
+
+// An error says what kind of value a state has where it needs an object or
+// an array, never the value, which may be a secret.
+func TestParseErrorsNameTheTypeNotTheValue(t *testing.T) {
+	t.Parallel()
+	for content, want := range map[string]string{
+		`"PLANTED-SECRET"`: "not a string",
+		`12345678`:         "not a number",
+		`true`:             "not a boolean",
+		`[1]`:              "not an array",
+		`{"version":4,"resources":"PLANTED-VALUE"}`: "not a string",
+		`{"version":4,"resources":{"a":"b"}}`:       "not an object",
+		`{"version":4,"resources":987654321}`:       "not a number",
+	} {
+		_, err := Parse([]byte(content), "w")
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%q: want an error with %q, got %v", content, want, err)
+			continue
+		}
+		for _, value := range []string{"PLANTED", "12345678", "987654321"} {
+			if strings.Contains(err.Error(), value) {
+				t.Errorf("%q: the error holds the value: %v", content, err)
+			}
+		}
+	}
+}

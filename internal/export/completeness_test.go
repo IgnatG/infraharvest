@@ -154,7 +154,7 @@ func TestInventoryCompleteness(t *testing.T) {
 func TestCompletenessHasKindsOnly(t *testing.T) {
 	t.Parallel()
 	out := writeListed(t, report.Listing{Scope: scope, Filters: []string{report.FilterTag, report.FilterID}})
-	for _, opts := range []Options{{}, {HashKey: []byte("key"), DropAddresses: true}} {
+	for _, opts := range []Options{{}, {HashKey: []byte("0123456789abcdef-key"), DropAddresses: true}} {
 		opts.Out, opts.Document = out, DocInventory
 		content := string(build(t, opts))
 		if !strings.Contains(content, `"tag": true`) && !strings.Contains(content, `"tag":true`) {
