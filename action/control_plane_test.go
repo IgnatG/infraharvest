@@ -128,16 +128,17 @@ func newControlPlane(t *testing.T) *controlPlane {
 				cp.statuses[r.URL.Path] = queue[1:]
 			}
 		}
-		if r.URL.Path == sessionPath {
+		switch {
+		case r.URL.Path == sessionPath:
 			if r.Header.Get("X-GitHub-OIDC-Token") != oidcToken {
 				status = http.StatusUnauthorized
 			}
-		} else if strings.HasPrefix(r.URL.Path, storagePrefix) {
+		case strings.HasPrefix(r.URL.Path, storagePrefix):
 			// A signed URL is the credential: the run token isn't sent there.
 			if r.Header.Get("Authorization") != "" {
 				status = http.StatusBadRequest
 			}
-		} else if r.Header.Get("Authorization") != "Bearer "+runToken {
+		case r.Header.Get("Authorization") != "Bearer "+runToken:
 			status = http.StatusUnauthorized
 		}
 		if status == http.StatusTooManyRequests && cp.retryAfterHeader != "" {

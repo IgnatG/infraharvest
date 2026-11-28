@@ -123,7 +123,7 @@ fi
 listed=$(
   for name in "${files[@]}"; do
     role=document
-    case "$name" in report.json | report.md) role=report ;; esac
+    if [[ $name == report.json || $name == report.md ]]; then role=report; fi
     bytes=$(wc -c < "$dir/$name")
     jq -n --arg name "$name" --arg role "$role" --argjson bytes "${bytes//[[:space:]]/}" '{name: $name, role: $role, bytes: $bytes}'
   done | jq -s '.'
